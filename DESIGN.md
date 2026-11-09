@@ -639,7 +639,7 @@ The genkernel of the design, minus `initramfs` (the Novara kernels carry the dri
   refusal cases), 5 CLI tests, and a real `build --auto` here. **Not tested**: `install` end to end (needs root and a
   Novara btrfs system), `--menuconfig`, and `--series longterm` on a real download.
 
-## Package repositories on GitHub; `forge pkg add` works (implemented; the upload itself not yet done)
+## Package repositories on GitHub; `forge pkg add` works (implemented, published and tested against GitHub)
 
 Packages are not installed on the system at install time: the system fetches them from the project's
 repository, `https://github.com/noxilith/NovaraSYS`.
@@ -677,7 +677,10 @@ repository, `https://github.com/noxilith/NovaraSYS`.
   repository (index and signature only at plan time; the archive only when applying; tampered index refused;
   wrong archive installs nothing; serial remembered under the URL), 6 CLI tests of `pkg add/remove`, and by hand
   an end-to-end `pkg add rsync` and `pkg add python` over HTTP (BusyBox `httpd`) into a scratch root, trusting only
-  the public key. **Not tested**: the real GitHub download (the release does not exist yet) and booting it all.
+  the public key. **Published 2026-11-09** (34 files, 661 MB, serial 32, release `repo` of noxilith/NovaraSYS), and
+  installed from GitHub into a scratch root both with `curl` (rsync) and with only BusyBox `wget` (util-linux): it
+  connects, follows the redirect to the asset store, verifies and installs. **Not tested**: on a booted installed
+  system, and the live system's TLS handshake on other networks.
 - **Limits.** One release holds one version of each package; there is no per-package history to roll a repository
   back to (the client's generations are the way back). `pkg add` cannot yet pull in build tools for `forge kernel`
   automatically.
