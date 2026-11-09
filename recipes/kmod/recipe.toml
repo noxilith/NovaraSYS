@@ -1,0 +1,39 @@
+# kmod: depmod, modprobe, modinfo, insmod, rmmod and lsmod, in one static binary. The kernel's
+# `make modules_install` needs a real depmod (BusyBox's does not take -b and does not write the
+# aliases), and the real modprobe handles aliases, blacklists and options properly. Its links replace
+# the BusyBox applets of the same names where both are present.
+name        = "kmod"
+version     = "34.3"
+description = "Linux kernel module tools (depmod, modprobe, modinfo, ...)"
+license     = "GPL-2.0-or-later AND LGPL-2.1-or-later"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers", "zlib", "pkgconf"]
+
+[[source]]
+url    = "https://www.kernel.org/pub/linux/utils/kernel/kmod/kmod-34.3.tar.xz"
+# Matches kernel.org's sha256sums.asc for this release.
+sha256 = "985554de49c21a58abd68c6cda2251384e1e5bb08b3b14c7f02b51f4c90c2958"
+
+[build]
+configure = '''
+./configure --prefix=/usr --sysconfdir=/etc --disable-manpages \
+    --with-zlib --without-openssl --without-zstd --without-xz --disable-dependency-tracking CFLAGS='-O2'
+'''
+# libtool turns -all-static into a fully static executable (plain --static would be ignored for libkmod.so).
+compile = "make -j$JOBS LDFLAGS=-all-static"
+install = '''
+# The install hook makes the tool links with GNU `ln --relative`, which BusyBox's ln lacks: let that last
+# step fail, then make the same links here and check the binary really was installed.
+make install DESTDIR=$DESTDIR || true
+test -x "$DESTDIR/usr/bin/kmod"
+mkdir -p "$DESTDIR/usr/sbin"
+for t in insmod lsmod rmmod depmod modprobe modinfo; do ln -sf ../bin/kmod "$DESTDIR/usr/sbin/$t"; done
+rm -rf "$DESTDIR/usr/share" "$DESTDIR/usr/lib" "$DESTDIR/usr/include"
+strip "$DESTDIR/usr/bin/kmod"
+for t in depmod modprobe modinfo insmod rmmod lsmod; do
+    test -e "$DESTDIR/usr/bin/$t" -o -e "$DESTDIR/usr/sbin/$t" || { echo "kmod did not install $t" >&2; exit 1; }
+done
+if readelf -lW "$DESTDIR/usr/bin/kmod" | grep -q INTERP; then echo "kmod is dynamic" >&2; exit 1; fi
+'''

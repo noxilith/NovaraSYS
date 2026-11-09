@@ -1,0 +1,36 @@
+# Perl 5.42, for build systems that run perl scripts (the kernel's, OpenSSL's...). Not meant as a
+# general scripting platform yet.
+#
+#  -Uusedl           no dynamic loading: the core XS modules (POSIX, Cwd, List::Util, ...) are linked into the
+#                    binary, so nothing needs a shared library or a compiler to load a module;
+#  -Dprocselfexe     how perl finds its own binary (Configure did not detect it here, and without it $^X is just
+#                    "perl" and the relocatable @INC below points at the wrong place);
+#  -Duserelocatableinc  @INC is found relative to the perl binary, so it works from the package store
+#                    (/forge/store/perl-.../usr/bin/perl) as well as from a profile mounted at /usr.
+name        = "perl"
+version     = "5.42.3_r1"
+description = "Perl (static extensions, relocatable)"
+license     = "Artistic-1.0-Perl OR GPL-1.0-or-later"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://www.cpan.org/src/5.0/perl-5.42.3.tar.xz"
+sha256 = "c9387e1473a1866935cb047ece7c2e0a80767a3acdecb79d4a375f8a95970ddc"
+
+[build]
+configure = '''
+sh Configure -des -Dprefix=/usr -Dcc=gcc -Doptimize=-O2 -Uusedl -Duserelocatableinc \
+    -Dman1dir=none -Dman3dir=none -Dusenm=false -Accflags=-D_GNU_SOURCE \
+    -Dd_procselfexe=define -Dprocselfexe='"/proc/self/exe"'
+'''
+compile = "make -j$JOBS"
+install = '''
+make install DESTDIR=$DESTDIR
+rm -rf "$DESTDIR"/usr/lib/perl5/*/pod "$DESTDIR"/usr/share/man "$DESTDIR"/usr/man
+test -x "$DESTDIR/usr/bin/perl"
+# It must find its own modules from where it was installed, not from a path baked in.
+test "$("$DESTDIR/usr/bin/perl" -MFile::Basename -MPOSIX -MCwd -MList::Util=sum -e 'print basename("/a/b"), sum(1,2,3), floor(2.5)')" = "b62"
+'''

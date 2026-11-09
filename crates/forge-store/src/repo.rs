@@ -167,6 +167,7 @@ pub struct Loaded {
 }
 
 /// A repository in a local directory.
+#[derive(Debug, Clone)]
 pub struct LocalRepo {
     dir: PathBuf,
 }
@@ -333,6 +334,15 @@ impl LocalRepo {
     pub fn sign(&self, signer: &SecretKey) -> Result<(), StoreError> {
         let mut index = self.index_unverified()?;
         index.serial += 1;
+        self.save(&index, Some(signer))
+    }
+
+    /// Like [`LocalRepo::sign`], but the new serial is at least `min_serial`. A repository rebuilt from scratch
+    /// would otherwise start counting again, and clients (which refuse an index older than one they saw) would
+    /// reject it as a rollback.
+    pub fn sign_at_least(&self, signer: &SecretKey, min_serial: u64) -> Result<(), StoreError> {
+        let mut index = self.index_unverified()?;
+        index.serial = (index.serial + 1).max(min_serial);
         self.save(&index, Some(signer))
     }
 }
@@ -730,5 +740,31 @@ mod tests {
     fn serial_defaults_to_zero_for_indexes_that_predate_signing() {
         let idx = Index::parse("[[package]]\nname = \"a\"\nversion = \"1\"\nlibc = \"musl\"\nhash = \"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"\narchive = \"a.tar.zst\"\narchive_sha256 = \"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"\n", Path::new("i")).unwrap();
         assert_eq!(idx.serial, 0);
+    }
+}
+
+#[cfg(test)]
+mod serial_floor_tests {
+    use super::*;
+    use crate::testutil::make_pkg;
+
+    #[test]
+    fn signing_at_least_never_lowers_and_can_raise_the_serial() {
+        let d = tempfile::tempdir().unwrap();
+        let key = SecretKey::from_seed([5; 32]);
+        make_pkg(d.path(), "a", "1", &[("usr/bin/a", "a")], &[]);
+        let repo = LocalRepo::new(d.path().join("r"));
+        repo.publish(&d.path().join("a-1.tar.zst"), Some(&key)).unwrap();
+        assert_eq!(repo.index_unverified().unwrap().serial, 1);
+        repo.sign_at_least(&key, 40).unwrap();
+        assert_eq!(repo.index_unverified().unwrap().serial, 40, "raised to the floor");
+        repo.sign_at_least(&key, 10).unwrap();
+        assert_eq!(repo.index_unverified().unwrap().serial, 41, "a lower floor only means the usual +1");
+        let ring = {
+            let mut r = Keyring::empty();
+            r.insert(key.public());
+            Trust::Require(r)
+        };
+        assert_eq!(repo.load(&ring).unwrap().index.serial, 41, "and it verifies");
     }
 }

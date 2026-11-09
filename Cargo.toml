@@ -27,7 +27,8 @@ ruzstd = "0.8"
 nix = { version = "0.29", default-features = false, features = ["sched", "mount", "fs", "user", "process", "signal", "hostname"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 lzma-rs = "0.3"
-bzip2-rs = "0.1"
+# 0.6 uses the pure-Rust port of the reference bzip2 library by default (bzip2-rs failed on a valid elfutils tarball).
+bzip2 = "0.6"
 forge-build = { path = "crates/forge-build" }
 ed25519-dalek = { version = "2", default-features = false, features = ["std", "zeroize"] }
 forge-store = { path = "crates/forge-store" }

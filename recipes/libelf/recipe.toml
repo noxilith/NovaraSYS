@@ -1,0 +1,48 @@
+# libelf from elfutils 0.197, static, and only the library: it is what the kernel's objtool needs. The
+# rest of elfutils needs glibc's argp, fts and obstack, which musl lacks, so configure is told those
+# checks pass (nothing that uses them is built). libelf.pc carries -lz because libelf.a uses zlib for
+# compressed sections and `pkg-config --libs libelf` is what objtool asks.
+name        = "libelf"
+version     = "0.197"
+description = "ELF object file access library (static)"
+license     = "LGPL-3.0-or-later OR GPL-2.0-or-later"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers", "zlib", "pkgconf"]
+
+[[source]]
+url    = "https://sourceware.org/elfutils/ftp/0.197/elfutils-0.197.tar.bz2"
+sha256 = "1fdf525f22dcf796d99a99ba3ea00a1f7b1ae5421bc62e8443a708920b99b904"
+
+[build]
+configure = '''
+ac_cv_search_argp_parse="none required" ac_cv_search_fts_close="none required" \
+ac_cv_search__obstack_free="none required" \
+./configure --prefix=/usr --disable-nls --disable-debuginfod --disable-libdebuginfod --disable-demangler \
+    --without-bzlib --without-lzma --without-zstd CFLAGS='-O2 -std=gnu17 -D_GNU_SOURCE'
+'''
+compile = '''
+# lib/ holds small helpers libelf uses (hash tables, search trees, crc32...) plus color.c and printversion.c,
+# which need argp.h and are not wanted: let those two fail, keep the rest, and fold them into libelf.a.
+make -C lib -k -j$JOBS || true
+make -C libelf -j$JOBS libelf.a
+ls lib/*.o > /dev/null
+ar rcs libelf/libelf.a lib/*.o
+# Everything libelf.a refers to must now be inside it (or in libc / zlib).
+cat > /tmp/probe.c <<'PROBE'
+#include <libelf.h>
+#include <gelf.h>
+int main(void) { elf_version(EV_CURRENT); Elf *e = elf_begin(-1, ELF_C_NULL, 0); (void)e; GElf_Ehdr h; (void)h; return 0; }
+PROBE
+gcc -O1 -Ilibelf -o /tmp/probe /tmp/probe.c libelf/libelf.a -lz
+/tmp/probe
+'''
+install = '''
+mkdir -p "$DESTDIR/usr/lib/pkgconfig" "$DESTDIR/usr/include"
+install -m 644 libelf/libelf.a "$DESTDIR/usr/lib/libelf.a"
+install -m 644 libelf/libelf.h libelf/gelf.h libelf/nlist.h "$DESTDIR/usr/include/"
+sed -e 's|^Libs: .*|Libs: -L\${libdir} -lelf -lz|' config/libelf.pc > "$DESTDIR/usr/lib/pkgconfig/libelf.pc"
+test -f "$DESTDIR/usr/lib/libelf.a"
+grep -q -- '-lz' "$DESTDIR/usr/lib/pkgconfig/libelf.pc"
+'''

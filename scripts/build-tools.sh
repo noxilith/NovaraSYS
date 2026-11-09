@@ -18,7 +18,7 @@ CACHE=${CACHE:-sources/cache}
 WORK=${WORK:-$HOME/.cache/forge/build}
 OUT=${OUT:-packages/tools}
 JOBS=${JOBS:-$(nproc)}
-ALL="zlib zstd lzo ncurses pkgconf util-linux rsync btrfs-progs shadow limine efivar efibootmgr libcap python ninja meson openrc m4 flex bison sudo libnl wpa_supplicant wireless-regdb linux-firmware-wifi"
+ALL="zlib zstd lzo ncurses pkgconf util-linux rsync btrfs-progs shadow limine efivar efibootmgr libcap python ninja meson openrc m4 flex bison kmod bash bc libelf perl openssl sudo libnl wpa_supplicant wireless-regdb linux-firmware-wifi"
 
 [ -x "$FORGE" ] || fail "build forge first (cargo build), or set FORGE=/path/to/forge"
 [ -n "$BASE_REPO" ] || fail "set BASE_REPO to the repository with the real busybox, musl, gcc... (scripts/bootstrap-selfhost.sh)"

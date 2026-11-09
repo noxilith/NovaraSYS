@@ -15,7 +15,7 @@ tar.workspace = true
 ruzstd.workspace = true
 flate2.workspace = true
 lzma-rs.workspace = true
-bzip2-rs.workspace = true
+bzip2.workspace = true
 nix.workspace = true
 
 [dev-dependencies]

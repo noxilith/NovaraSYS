@@ -5,6 +5,7 @@
 mod build;
 mod install;
 mod release;
+mod store_build;
 
 use std::fs;
 use std::io::{self, Write};
@@ -12,11 +13,15 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 pub use build::{BuildSpec, Mode, Staged, build, preflight};
+pub use store_build::{BUILD_PACKAGES, StoreBuildSpec, build_in_store};
 pub use install::{Installed, install_files, staged_release};
 pub use release::{RELEASES_URL, Release, Selector, parse_releases, parse_sums, pick, sums_url, tarball_name, tarball_url, version_key};
 
 /// The configuration script, shared with `recipes/linux` (the live ISO's kernel).
 pub const CONFIG_SCRIPT: &str = include_str!("../../../recipes/linux/full-config.sh");
+
+/// The compile and install steps, shared with `recipes/linux`.
+pub const BUILD_SCRIPT: &str = include_str!("../../../recipes/linux/kernel-build.sh");
 
 #[derive(Debug, thiserror::Error)]
 pub enum KernelError {
@@ -158,8 +163,8 @@ impl Http for Curl {
 }
 
 /// Resolve `sel`, then download its tarball into `cache`, checked against kernel.org's checksum list.
-/// Returns the version and the verified tarball.
-pub fn fetch(http: &dyn Http, cache: &forge_build::SourceCache, sel: &Selector) -> Result<(String, PathBuf), KernelError> {
+/// Returns the version, the verified tarball and its SHA-256.
+pub fn fetch(http: &dyn Http, cache: &forge_build::SourceCache, sel: &Selector) -> Result<(String, PathBuf, String), KernelError> {
     let version = match sel {
         Selector::Version(_) => pick(&[], sel)?,
         _ => pick(&parse_releases(&http.get(RELEASES_URL)?)?, sel)?,
@@ -167,9 +172,9 @@ pub fn fetch(http: &dyn Http, cache: &forge_build::SourceCache, sel: &Selector) 
     let name = tarball_name(&version);
     let sums = http.get(&sums_url(&version))?;
     let sha256 = parse_sums(&sums, &name).ok_or_else(|| KernelError::NoChecksum(name.clone()))?;
-    let source = forge_schema::Source { url: tarball_url(&version), sha256 };
+    let source = forge_schema::Source { url: tarball_url(&version), sha256: sha256.clone() };
     let path = cache.fetch(&source).map_err(|e| KernelError::Fetch(e.to_string()))?;
-    Ok((version, path))
+    Ok((version, path, sha256))
 }
 
 pub(crate) fn write(path: &Path, text: &str) -> Result<(), KernelError> {

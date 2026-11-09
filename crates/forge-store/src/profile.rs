@@ -154,15 +154,26 @@ impl Profile {
 
     fn build_tree(&self, store: &Store, packages: &BTreeSet<StoreId>, tmp: &Path) -> Result<(), StoreError> {
         fs::create_dir_all(tmp).map_err(io_ctx(format!("creating {}", tmp.display())))?;
-        let mut owners: BTreeMap<String, (StoreId, Kind)> = BTreeMap::new();
+        // path -> (owner, kind, is a BusyBox applet link). An applet link is only a fallback: a real package's
+        // file replaces it, and it never replaces a real file.
+        let mut owners: BTreeMap<String, (StoreId, Kind, bool)> = BTreeMap::new();
         for pkg in packages {
             let manifest = store.manifest(pkg)?;
             for f in &manifest.files {
                 let dest = tmp.join(&f.path);
+                let applet = f.kind == Kind::Symlink
+                    && f.target.as_deref().is_some_and(|t| Path::new(t).file_name().is_some_and(|n| n == "busybox"));
                 match (owners.get(&f.path), f.kind) {
                     // Directories are shared: both packages just need it to exist.
-                    (Some((_, Kind::Dir)), Kind::Dir) => {}
-                    (Some((owner, _)), _) => {
+                    (Some((_, Kind::Dir, _)), Kind::Dir) => {}
+                    (Some(_), _) if applet => {}
+                    (Some((_, _, true)), _) => {
+                        fs::remove_file(&dest).map_err(io_ctx(format!("replacing {}", dest.display())))?;
+                        symlink(store.path(pkg).join(&f.path), &dest)
+                            .map_err(io_ctx(format!("linking {}", dest.display())))?;
+                        owners.insert(f.path.clone(), (pkg.clone(), f.kind, false));
+                    }
+                    (Some((owner, _, _)), _) => {
                         return Err(StoreError::Conflict {
                             path: f.path.clone(),
                             a: owner.clone(),
@@ -171,12 +182,12 @@ impl Profile {
                     }
                     (None, Kind::Dir) => {
                         fs::create_dir(&dest).map_err(io_ctx(format!("creating {}", dest.display())))?;
-                        owners.insert(f.path.clone(), (pkg.clone(), Kind::Dir));
+                        owners.insert(f.path.clone(), (pkg.clone(), Kind::Dir, false));
                     }
                     (None, _) => {
                         symlink(store.path(pkg).join(&f.path), &dest)
                             .map_err(io_ctx(format!("linking {}", dest.display())))?;
-                        owners.insert(f.path.clone(), (pkg.clone(), f.kind));
+                        owners.insert(f.path.clone(), (pkg.clone(), f.kind, applet));
                     }
                 }
             }
@@ -239,6 +250,48 @@ mod tests {
         }
     }
 
+
+    /// A package holding real files plus symlinks (`links`: path -> target), packed from a scratch tree.
+    fn add_with_links(fx: &Fx, name: &str, files: &[(&str, &str)], links: &[(&str, &str)]) -> StoreId {
+        let src = fx.d.path().join(format!("src-links-{name}"));
+        for (p, c) in files {
+            fs::create_dir_all(src.join(p).parent().unwrap()).unwrap();
+            fs::write(src.join(p), c).unwrap();
+        }
+        for (p, t) in links {
+            fs::create_dir_all(src.join(p).parent().unwrap()).unwrap();
+            std::os::unix::fs::symlink(t, src.join(p)).unwrap();
+        }
+        let out = fx.d.path().join(format!("{name}.tar.zst"));
+        let opts = crate::PackOptions { name: name.into(), version: "1.0".into(), libc: forge_schema::Libc::Musl, hash: None, deps: vec![] };
+        crate::pack_dir(&src, &opts, &out).unwrap();
+        fx.store.install(fs::File::open(&out).unwrap(), None).unwrap()
+    }
+
+    #[test]
+    fn a_real_package_replaces_a_busybox_applet_link_in_either_order() {
+        // The set is ordered by id: "bc" sorts before "busybox", "zzbc" after it, so both orders are exercised.
+        for real in ["bc", "zzbc"] {
+            let fx = Fx::new();
+            let bb = add_with_links(&fx, "busybox", &[("bin/busybox", "BB")], &[("usr/bin/bc", "../../bin/busybox"), ("bin/ls", "busybox")]);
+            let bc = fx.add(real, &[("usr/bin/bc", "REAL")]);
+            let ids = Fx::set(&[&bb, &bc]);
+            fx.profile.switch(&fx.store, &ids, 1).unwrap();
+            let cur = fx.profile.current_link();
+            assert_eq!(fs::read_to_string(cur.join("usr/bin/bc")).unwrap(), "REAL", "the real bc wins");
+            assert_eq!(fs::read_link(cur.join("bin/ls")).unwrap(), Path::new(&format!("{}", fx.store.path(&bb).join("bin/ls").display())), "other applets stay");
+        }
+    }
+
+    #[test]
+    fn two_real_files_at_one_path_are_still_a_conflict() {
+        let fx = Fx::new();
+        let a = fx.add("a", &[("usr/bin/x", "1")]);
+        let b = fx.add("b", &[("usr/bin/x", "2")]);
+        assert!(fx.profile.switch(&fx.store, &Fx::set(&[&a, &b]), 1).is_err());
+        let c = add_with_links(&fx, "c", &[], &[("usr/bin/x", "elsewhere")]);
+        assert!(fx.profile.switch(&fx.store, &Fx::set(&[&a, &c]), 2).is_err(), "a link to anything but busybox is no applet");
+    }
     #[test]
     fn links_package_files_into_the_profile() {
         let fx = Fx::new();

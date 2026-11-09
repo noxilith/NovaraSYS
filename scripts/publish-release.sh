@@ -38,9 +38,14 @@ if [ -e "$DEST" ]; then
     rm -rf "$DEST.old"
     mv "$DEST" "$DEST.old"
 fi
+# The serial must never go down: clients refuse an index older than one they have seen. Read the one that is
+# published now and go above it (nothing published yet: start at 1).
+live=$(curl -fsSL "https://github.com/$GH_REPO/releases/download/$TAG/index.toml" 2>/dev/null | sed -n 's/^serial = //p' | head -1)
+min_serial=$(( ${live:-0} + 1 ))
+echo "published serial is ${live:-none}; the new one will be at least $min_serial"
 from=()
 for s in $SOURCES; do from+=(--from "$s"); done
-"$FORGE" repo assemble "$DEST" "${from[@]}" --key "$RELEASE_KEY" 2>&1 | grep -v 'no version information available'
+"$FORGE" repo assemble "$DEST" "${from[@]}" --key "$RELEASE_KEY" --min-serial "$min_serial" 2>&1 | grep -v 'no version information available'
 
 # Never publish something the project's own public key would not accept.
 "$FORGE" repo verify "$DEST" --keys distro/keys 2>&1 | grep -v 'no version information available' \

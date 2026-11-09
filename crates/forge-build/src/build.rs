@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use forge_schema::{Libc, Recipe};
-use forge_store::{Index, LocalRepo, PackOptions, Profile, Store, StoreId, Trust, pack_dir, remove_tree, resolve};
+use forge_store::{FetchHandle, Index, PackOptions, Profile, Repository, Store, StoreId, Trust, pack_dir, remove_tree, resolve};
 
 use crate::fetch::{SourceCache, file_name_of};
 use crate::sandbox::{self, Bind, SETUP_FAILED, SandboxConfig};
@@ -41,11 +41,13 @@ pub struct BuildOptions {
     /// Parent of the temporary per-build directory.
     pub work_dir: PathBuf,
     pub source_cache: PathBuf,
-    /// Repositories used to resolve dependencies.
+    /// Repositories used to resolve dependencies: directories, or `https://` base URLs.
     pub repos: Vec<PathBuf>,
     /// How far to trust those repositories' indexes. A build downloads its own
     /// tools from them, so an unverified index could hand it a poisoned compiler.
     pub trust: Trust,
+    /// How remote repositories are downloaded from.
+    pub fetch: FetchHandle,
     pub tools: Tools,
     /// The package store used for `Tools::Store`.
     pub store: PathBuf,
@@ -67,18 +69,18 @@ pub struct Built {
     pub work_dir: Option<PathBuf>,
 }
 
-fn load_indexes(repos: &[PathBuf], trust: &Trust) -> Result<Vec<(LocalRepo, Index)>, BuildError> {
+fn load_indexes(repos: &[PathBuf], trust: &Trust, fetch: &FetchHandle) -> Result<Vec<(Repository, Index)>, BuildError> {
     repos
         .iter()
         .map(|dir| {
-            let repo = LocalRepo::new(dir);
-            let index = repo.load(trust).map_err(|e| BuildError::Dependencies(e.to_string()))?.index;
+            let repo = Repository::parse(&dir.to_string_lossy());
+            let index = repo.load(fetch.0.as_ref(), trust).map_err(|e| BuildError::Dependencies(e.to_string()))?.index;
             Ok((repo, index))
         })
         .collect()
 }
 
-fn merged(indexes: &[(LocalRepo, Index)]) -> Index {
+fn merged(indexes: &[(Repository, Index)]) -> Index {
     let mut all = Index::default();
     for (_, index) in indexes {
         for e in &index.packages {
@@ -91,7 +93,7 @@ fn merged(indexes: &[(LocalRepo, Index)]) -> Index {
 }
 
 /// The direct run-time dependencies of the recipe, as store ids.
-fn run_dep_ids(recipe: &Recipe, libc: Libc, indexes: &[(LocalRepo, Index)]) -> Result<Vec<String>, BuildError> {
+fn run_dep_ids(recipe: &Recipe, libc: Libc, indexes: &[(Repository, Index)]) -> Result<Vec<String>, BuildError> {
     let index = merged(indexes);
     recipe
         .depends
@@ -116,8 +118,9 @@ fn run_dep_ids(recipe: &Recipe, libc: Libc, indexes: &[(LocalRepo, Index)]) -> R
 fn install_build_deps(
     recipe: &Recipe,
     libc: Libc,
-    indexes: &[(LocalRepo, Index)],
+    indexes: &[(Repository, Index)],
     store: &Store,
+    fetch: &FetchHandle,
 ) -> Result<BTreeSet<StoreId>, BuildError> {
     if recipe.depends.build.is_empty() {
         return Ok(BTreeSet::new());
@@ -132,7 +135,7 @@ fn install_build_deps(
                 .iter()
                 .find_map(|(r, i)| i.by_id(&id).map(|e| (r, e)))
                 .expect("resolved from these indexes");
-            let file = repo.open_archive(e).map_err(dep_err)?;
+            let file = repo.open_archive(e, fetch.0.as_ref(), &store.root().join(".downloads")).map_err(dep_err)?;
             store.install(file, Some(&e.archive_sha256)).map_err(dep_err)?;
         }
         ids.insert(id);
@@ -245,7 +248,7 @@ pub fn build(opts: &BuildOptions) -> Result<Built, BuildError> {
     let effective = recipe.effective(opts.libc).map_err(|e| BuildError::Recipe(e.to_string()))?;
 
     let mut warnings = Vec::new();
-    let indexes = load_indexes(&opts.repos, &opts.trust)?;
+    let indexes = load_indexes(&opts.repos, &opts.trust, &opts.fetch)?;
     let run_deps = run_dep_ids(&recipe, opts.libc, &indexes)?;
 
     let store = if opts.tools == Tools::Store {
@@ -255,7 +258,7 @@ pub fn build(opts: &BuildOptions) -> Result<Built, BuildError> {
         None
     };
     let build_dep_ids: BTreeSet<StoreId> = match &store {
-        Some(s) => install_build_deps(&recipe, opts.libc, &indexes, s)?,
+        Some(s) => install_build_deps(&recipe, opts.libc, &indexes, s, &opts.fetch)?,
         None => {
             if !recipe.depends.build.is_empty() {
                 warnings.push(format!(

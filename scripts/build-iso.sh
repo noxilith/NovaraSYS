@@ -5,8 +5,8 @@
 #
 # BASE_REPO holds the real busybox and musl (see scripts/bootstrap-selfhost.sh); TOOLS_REPO
 # (default repo/tools) the strap tools and forge (scripts/build-tools.sh, scripts/package-forge.sh).
-# The kernel is built here from recipes/linux (about 10 minutes the first time; it
-# is IMPURE: it uses the host's gcc, flex, bison, bc, perl, libelf and OpenSSL headers)
+# The kernel is built here from recipes/linux with store packages only (about 35 minutes the first time; it
+# needs the tools repository: scripts/build-tools.sh)
 # and published, signed, into its own repository. Needs on the host: xorriso,
 # mksquashfs, openssl and limine (the `limine` tool and /usr/share/limine files).
 #
@@ -39,7 +39,8 @@ sign_existing_repo "$BASE_REPO"
 mkdir -p "$OUT"
 if [ ! -f "$KERNEL_REPO/index.toml" ]; then
     echo "==== building the kernel"
-    "$FORGE" build "${TRUST[@]}" recipes/linux --libc musl --tools host --jobs "$JOBS" \
+    "$FORGE" build "${TRUST[@]}" recipes/linux --libc musl --tools store --jobs "$JOBS" \
+        --store "$OUT/store-kernel" --repo "$BASE_REPO" --repo "$TOOLS_REPO" \
         --out "$OUT" --source-cache "$CACHE" --work-dir "$WORK" \
         --publish "$KERNEL_REPO" "${SIGN[@]}" >"$OUT/kernel.log" 2>&1 \
         || { grep -v 'no version information available' "$OUT/kernel.log" | tail -n 40; fail "the kernel build failed; the full log is $OUT/kernel.log"; }

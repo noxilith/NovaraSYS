@@ -144,6 +144,42 @@ pub fn download_to_temp(fetch: &dyn Fetch, url: &str, dir: &Path) -> Result<Path
     Ok(tmp)
 }
 
+/// A repository named by a directory or by an HTTP(S) base URL.
+#[derive(Debug, Clone)]
+pub enum Repository {
+    Local(crate::repo::LocalRepo),
+    Remote(RemoteRepo),
+}
+
+impl Repository {
+    /// `https://...` and `http://...` are remote; anything else is a directory.
+    pub fn parse(spec: &str) -> Self {
+        if is_url(spec) { Repository::Remote(RemoteRepo::new(spec)) } else { Repository::Local(crate::repo::LocalRepo::new(spec)) }
+    }
+
+    pub fn load(&self, fetch: &dyn Fetch, trust: &Trust) -> Result<Loaded, StoreError> {
+        match self {
+            Repository::Local(r) => r.load(trust),
+            Repository::Remote(r) => r.load(fetch, trust),
+        }
+    }
+
+    /// Open an archive. A remote one is downloaded into `scratch` first and unlinked once opened, so
+    /// nothing is left behind; the caller still verifies it against the hash in the index.
+    pub fn open_archive(&self, e: &IndexEntry, fetch: &dyn Fetch, scratch: &Path) -> Result<fs::File, StoreError> {
+        match self {
+            Repository::Local(r) => r.open_archive(e),
+            Repository::Remote(r) => {
+                let url = r.archive_url(e)?;
+                let tmp = download_to_temp(fetch, &url, scratch)?;
+                let file = fs::File::open(&tmp).map_err(io_ctx(format!("opening {}", tmp.display())));
+                let _ = fs::remove_file(&tmp);
+                file
+            }
+        }
+    }
+}
+
 impl PartialEq for FetchHandle {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)

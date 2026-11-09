@@ -430,6 +430,7 @@ fn build_cmd(a: BuildArgs) -> Result<()> {
         },
         repos: a.repos,
         trust: load_trust(a.keys, a.allow_unsigned, user_dir("keys")?)?,
+        fetch: Default::default(),
         tools: match a.tools {
             ToolsArg::Store => forge_build::Tools::Store,
             ToolsArg::Host => forge_build::Tools::Host,
@@ -1195,6 +1196,9 @@ enum RepoAction {
         /// The secret key to sign the new repository with
         #[arg(long)]
         key: PathBuf,
+        /// The new serial is at least this (the published repository's serial + 1: it must never go down)
+        #[arg(long, default_value_t = 0)]
+        min_serial: u64,
         /// Leave out packages whose name contains this (default: -stage, the bootstrap steps)
         #[arg(long, default_value = "-stage")]
         skip: Vec<String>,
@@ -1216,7 +1220,7 @@ fn repo_cmd(a: RepoArgs) -> Result<()> {
             repo_handle.sign(&signer)?;
             println!("signed {} with key {}", repo.display(), signer.public().id());
         }
-        RepoAction::Assemble { dest, from, key, skip } => {
+        RepoAction::Assemble { dest, from, key, skip, min_serial } => {
             if dest.exists() {
                 bail!("{} already exists; remove it or choose another name", dest.display());
             }
@@ -1249,6 +1253,7 @@ fn repo_cmd(a: RepoArgs) -> Result<()> {
                 target.publish(path, Some(&signer)).with_context(|| format!("adding {} {}", e.name, e.version))?;
                 println!("  {} {}", e.name, e.version);
             }
+            target.sign_at_least(&signer, min_serial)?;
             // Run-time dependencies are exact builds: every one must have come along.
             let index = target.load(&forge_store::Trust::AllowUnsigned)?.index;
             let mut missing = Vec::new();
@@ -1459,6 +1464,24 @@ struct KernelBuildArgs {
     /// Install it when the build is done (needs root)
     #[arg(long)]
     install: bool,
+    /// Build with the tools installed on this machine instead of the packages (needed for --menuconfig)
+    #[arg(long)]
+    host_tools: bool,
+    /// A package repository to fetch the build tools from (repeatable; default: the ones in /etc/forge/system.toml)
+    #[arg(long, value_name = "DIR-OR-URL")]
+    repo: Vec<String>,
+    /// Directory of trusted public keys (default: /etc/forge/keys)
+    #[arg(long)]
+    keys: Option<PathBuf>,
+    /// Use repository indexes WITHOUT checking their signatures (insecure)
+    #[arg(long)]
+    allow_unsigned: bool,
+    /// The package store the build tools are installed into (default: /forge/store as root, else ~/.cache/forge/store)
+    #[arg(long)]
+    store: Option<PathBuf>,
+    /// Keep the build directory after a failed build, for inspection
+    #[arg(long)]
+    keep_work: bool,
     /// Do not check for the build tools first
     #[arg(long)]
     skip_checks: bool,
@@ -1532,24 +1555,25 @@ fn running_config(work: &Path) -> Result<PathBuf> {
 }
 
 fn kernel_build(b: KernelBuildArgs) -> Result<()> {
-    if !b.skip_checks {
+    if b.host_tools && !b.skip_checks {
         forge_kernel::preflight()?;
     }
     let work = match b.work_dir {
         Some(w) => w,
         None => cache_home("kernel")?,
     };
-    let cache = forge_build::SourceCache::new(match b.source_cache {
+    let cache_root = match b.source_cache {
         Some(c) => c,
         None => cache_home("sources")?,
-    });
+    };
+    let cache = forge_build::SourceCache::new(cache_root.clone());
     let selector = match (&b.version, b.series) {
         (Some(v), _) => forge_kernel::Selector::Version(v.clone()),
         (None, Series::Stable) => forge_kernel::Selector::Stable,
         (None, Series::Longterm) => forge_kernel::Selector::Longterm,
     };
     eprintln!("finding the kernel...");
-    let (version, tarball) = forge_kernel::fetch(&forge_kernel::Curl, &cache, &selector)?;
+    let (version, tarball, tarball_sha256) = forge_kernel::fetch(&forge_kernel::Curl, &cache, &selector)?;
     eprintln!("kernel {version}: {} (checked against kernel.org's checksum list)", tarball.display());
 
     let mode = if b.full {
@@ -1572,13 +1596,37 @@ fn kernel_build(b: KernelBuildArgs) -> Result<()> {
             keep: b.also_keep,
         }
     };
-    let out = b.out.unwrap_or_else(|| work.join(format!("stage-{version}")));
-    if out.exists() && std::fs::read_dir(&out).map(|mut d| d.next().is_some()).unwrap_or(false) {
-        bail!("{} is not empty; remove it or pass another --out", out.display());
-    }
     let jobs = b.jobs.unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1));
-    let spec = forge_kernel::BuildSpec { version, tarball, work, out, mode, jobs, cc: b.cc };
-    let staged = forge_kernel::build(&spec, &mut forge_kernel::SystemRunner)?;
+    let staged = if b.host_tools {
+        // The tools installed on this machine do the work (needed for --menuconfig).
+        let out = b.out.clone().unwrap_or_else(|| work.join(format!("stage-{version}")));
+        if out.exists() && std::fs::read_dir(&out).map(|mut d| d.next().is_some()).unwrap_or(false) {
+            bail!("{} is not empty; remove it or pass another --out", out.display());
+        }
+        let spec = forge_kernel::BuildSpec { version, tarball, work, out, mode, jobs, cc: b.cc };
+        forge_kernel::build(&spec, &mut forge_kernel::SystemRunner)?
+    } else {
+        // The default: the build tools come from the packages (fetched and verified like any package) and the
+        // build runs in the package sandbox, so nothing has to be installed first.
+        let repos = if b.repo.is_empty() { system_repos() } else { b.repo.clone() };
+        let spec = forge_kernel::StoreBuildSpec {
+            version,
+            tarball_sha256,
+            source_cache: cache_root.clone(),
+            work,
+            mode,
+            jobs,
+            libc: forge_schema::Libc::Musl,
+            repos,
+            trust: load_trust(b.keys.clone(), b.allow_unsigned, PathBuf::from("/etc/forge/keys"))?,
+            fetch: Default::default(),
+            store: match &b.store { Some(s) => s.clone(), None => if is_root() { PathBuf::from("/forge/store") } else { cache_home("store")? } },
+            helper: std::env::current_exe().context("finding the forge executable")?,
+            keep_work: b.keep_work,
+        };
+        eprintln!("building with the packages {} (fetched into {})", forge_kernel::BUILD_PACKAGES.join(" "), spec.store.display());
+        forge_kernel::build_in_store(&spec)?
+    };
     println!("built kernel {} in {}", staged.release, staged.dir.display());
     if b.install {
         return kernel_install(KernelInstallArgs {
@@ -1635,4 +1683,14 @@ fn kernel_install(i: KernelInstallArgs) -> Result<()> {
     println!("limine.conf now boots {}; older kernels stay available under Generations", installed.kernel_file);
     println!("reboot to use kernel {}", installed.release);
     Ok(())
+}
+
+/// The repositories the system declares (`repos` in /etc/forge/system.toml), or the project's own.
+fn system_repos() -> Vec<String> {
+    std::fs::read_to_string("/etc/forge/system.toml")
+        .ok()
+        .and_then(|t| SystemDecl::parse(&t).ok())
+        .map(|d| d.repos)
+        .filter(|r| !r.is_empty())
+        .unwrap_or_else(|| vec![forge_schema::DEFAULT_REPO_URL.to_string()])
 }

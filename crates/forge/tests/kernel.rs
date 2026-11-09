@@ -47,7 +47,7 @@ fn installing_a_directory_that_is_not_a_staged_kernel_fails_clearly() {
 fn the_help_describes_the_three_modes() {
     let o = forge(&["kernel", "build", "--help"]);
     let t = text(&o);
-    for flag in ["--full", "--auto", "--menuconfig", "--also-keep", "--loaded-modules", "--install"] {
+    for flag in ["--full", "--auto", "--menuconfig", "--also-keep", "--loaded-modules", "--install", "--host-tools", "--repo", "--keys"] {
         assert!(t.contains(flag), "{flag} missing from the help: {t}");
     }
 }

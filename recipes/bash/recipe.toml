@@ -1,0 +1,26 @@
+# GNU bash, static. Needed by the kernel's configuration scripts (scripts/config, merge_config.sh) and by
+# a great deal of other software; it does not replace /bin/sh (that stays BusyBox).
+# -std=gnu17: bash 5.3 has K&R-style declarations that mean "no arguments" in C23 (gcc 15's default).
+name        = "bash"
+version     = "5.3"
+description = "GNU Bourne-Again shell"
+license     = "GPL-3.0-or-later"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers", "ncurses"]
+
+[[source]]
+url    = "https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz"
+sha256 = "0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba"
+
+[build]
+configure = "./configure --prefix=/usr --without-bash-malloc --disable-nls --disable-dependency-tracking CFLAGS='-O2 -std=gnu17' LDFLAGS=--static"
+compile   = "make -j$JOBS"
+install   = '''
+make install DESTDIR=$DESTDIR
+rm -rf "$DESTDIR/usr/share" "$DESTDIR/usr/lib/bash" "$DESTDIR/usr/include" "$DESTDIR/usr/bin/bashbug" "$DESTDIR/usr/lib/pkgconfig"
+strip "$DESTDIR/usr/bin/bash"
+if readelf -lW "$DESTDIR/usr/bin/bash" | grep -q INTERP; then echo "bash is dynamic" >&2; exit 1; fi
+test "$("$DESTDIR/usr/bin/bash" -c 'a=(1 2 3); [[ ${a[2]} == 3 ]] && echo ${#a[@]}')" = "3"
+'''

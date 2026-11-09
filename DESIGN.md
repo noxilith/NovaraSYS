@@ -632,7 +632,7 @@ The genkernel of the design, minus `initramfs` (the Novara kernels carry the dri
   system and kernel you had), copies modules (moved into place, with `/lib/modules` linked) and kernel/config, and
   rewrites `limine.conf` to boot the new kernel with no initramfs. Older kernels are never removed: each generation
   pins its own. `--no-generation`, `--no-limine`, `--force` and path options exist. `build --install` does both.
-- **Needs on the machine**: make, gcc, ld, bc, flex, bison, perl, xz, tar and libelf headers (it checks first).
+- **Needs on the machine (only with `--host-tools`)**: make, gcc, ld, bc, flex, bison, perl, xz, tar and libelf headers (it checks first). The default no longer needs any of it: see "forge kernel needs only itself" below.
   **bc, perl and libelf are not Novara packages yet**, so a freshly installed Novara system cannot build kernels
   until they are. (The toolchain, flex, bison and m4 are.)
 - **Tested**: 14 unit tests (release choice, URLs, checksum parsing, command order per mode, staging, install,
@@ -708,3 +708,38 @@ A user created by `forge strap` had only the `forge` group, and the system had n
   strap group changes on a real disk.
 - **On a system installed before this**: no sudo exists. Log in as root, then `usermod -aG wheel,audio,video,input,users NAME`;
   for sudo reinstall from the new ISO.
+
+## `forge kernel` needs only itself (implemented; tested against GitHub on a build machine, not on an installed Novara system)
+
+`forge kernel build` used to need a compiler, `bc`, `perl` and `libelf` already installed. It now builds in the same sandbox
+every package build uses, from packages it fetches itself:
+
+- **How.** It resolves the version and checks the tarball against kernel.org's checksum list, writes a throwaway recipe
+  (`BUILD_PACKAGES`: busybox make binutils gcc musl linux-headers **bc perl libelf flex bison m4 zlib pkgconf bash
+  openssl kmod**) plus the shared scripts `recipes/linux/full-config.sh` and `kernel-build.sh` (embedded in forge, so the
+  `linux` recipe and `forge kernel` cannot drift apart) and, for `--auto`, the base configuration and module list, then runs
+  `forge_build::build` with `Tools::Store`. Missing tools are downloaded from the repositories in `/etc/forge/system.toml`
+  (or the project's), verified against `/etc/forge/keys`, and installed into the store; the result is unpacked into a staged
+  kernel that `forge kernel install` takes as before. `--host-tools` keeps the old path (needed for `--menuconfig`, which
+  needs a terminal the sandbox does not give it yet).
+- **Proven here**: `forge kernel build --version 7.3.3 --auto` with an EMPTY store, GitHub as the only repository and only
+  `distro/keys` trusted: it fetched the 17 packages (292 MB), verified them, built 202 modules in the sandbox and staged the
+  kernel. Run from local repositories it gave the same package id (the build inputs are reproducible). The full `linux`
+  recipe, too, builds with store packages only (5,659 modules, the same as the host-tools build; config differences are only
+  compiler-derived values, gcc 14.2 instead of the host's 15). That kernel is **not published or booted**: the ISO still
+  carries the host-built 7.3.3 that has been booted.
+- **New packages this took**: `bash` 5.3 (the kernel's `scripts/config` is a bash script), `bc` 7.0.3 (Gavin Howard's),
+  `perl` 5.42.3 (static extensions; `-Dprocselfexe` so its relocatable `@INC` works from the store), `libelf` 0.197 (the
+  library only: the rest of elfutils needs glibc's argp/fts/obstack), `openssl` 3.5.9 (LTS; needed because the signed Wi-Fi
+  regulatory database option pulls in the kernel's certificate tool; also what WPA3 will need), `kmod` 34.3 (a real
+  `depmod`: BusyBox's takes no `-b`).
+- **Side fixes found on the way**: the store's profile builder now lets a BusyBox applet link yield to a real package's
+  file (`bc`, `kmod`'s tools...), as the ISO builder already did; the `.tar.bz2` decoder is `bzip2` 0.6 (pure Rust) because
+  `bzip2-rs` failed on a valid elfutils tarball; `forge build` can fetch its tools from `https://` repositories; the
+  repository serial now has a floor (`repo assemble --min-serial`, which `publish-release.sh` sets to the published serial
+  + 1): a repository rebuilt from scratch used to restart its serial at its package count, which clients would have
+  rejected as a rollback.
+- **Gotchas recorded**: a kernel work directory needs ~15 GB and must not be on a RAM-backed `/tmp`; `libc`-named
+  environment variables leak into configure scripts (CPython took `LIBC=musl` for a library).
+- **Not done**: `--menuconfig` in the sandbox; glibc (no glibc toolchain package exists); testing `forge kernel install`
+  and the rebuilt kernel on a real Novara machine.

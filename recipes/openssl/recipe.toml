@@ -1,0 +1,29 @@
+# OpenSSL 3.5 (the long-term-support series, supported until 2030), static libraries and headers plus the
+# `openssl` tool. 4.x is too new: it removes APIs that tools such as the kernel's certificate extractor still use.
+# Built for what needs it at build time (the kernel's signed Wi-Fi regulatory database check) and, later,
+# for wpa_supplicant (WPA3). No documentation, tests or shared libraries.
+name        = "openssl"
+version     = "3.5.9"
+description = "OpenSSL cryptography library and tool (static)"
+license     = "Apache-2.0"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers", "perl"]
+
+[[source]]
+url    = "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz"
+# Matches the .sha256 file published beside the release.
+sha256 = "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a"
+
+[build]
+configure = "./Configure linux-x86_64 --prefix=/usr --openssldir=/etc/ssl --libdir=lib no-shared no-tests no-docs CFLAGS='-O2'"
+compile   = "make -j$JOBS"
+install   = '''
+make install_sw DESTDIR=$DESTDIR
+rm -rf "$DESTDIR/usr/share" "$DESTDIR/usr/bin/c_rehash"
+strip "$DESTDIR/usr/bin/openssl"
+test -f "$DESTDIR/usr/lib/libcrypto.a"
+test -f "$DESTDIR/usr/lib/pkgconfig/libcrypto.pc"
+"$DESTDIR/usr/bin/openssl" version | grep -q '^OpenSSL 3.5.9'
+'''

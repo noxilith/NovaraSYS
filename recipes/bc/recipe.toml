@@ -1,0 +1,24 @@
+# Gavin Howard's bc (also dc): a POSIX bc with no dependencies, which is what the kernel build uses
+# (kernel/time/timeconst.bc). Static.
+name        = "bc"
+version     = "7.0.3"
+description = "Arbitrary-precision calculator (bc, dc)"
+license     = "BSD-2-Clause"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://github.com/gavinhoward/bc/releases/download/7.0.3/bc-7.0.3.tar.xz"
+sha256 = "91eb74caed0ee6655b669711a4f350c25579778694df248e28363318e03c7fc4"
+
+[build]
+configure = "CC=gcc CFLAGS='-O2' LDFLAGS=--static ./configure.sh --disable-generated-tests --disable-nls --disable-man-pages --prefix=/usr"
+compile   = "make -j$JOBS"
+install   = '''
+make install DESTDIR=$DESTDIR
+strip "$DESTDIR/usr/bin/bc" "$DESTDIR/usr/bin/dc"
+test -x "$DESTDIR/usr/bin/bc"
+echo "scale=3; 10/3" | "$DESTDIR/usr/bin/bc" | grep -q '^3.333$'
+'''

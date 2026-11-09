@@ -1,9 +1,9 @@
 # The Linux kernel for the live ISO and for installed systems.
 #
-# IMPURE, like the stage-0 packages: it is built with `--tools host` (the host's gcc,
-# make, flex, bison, bc, perl, libelf and OpenSSL headers), because those tools are
-# not packages yet. The kernel does not link against a libc, so musl vs glibc only
-# decides which repository the result belongs to.
+# PURE: built with `--tools store`, i.e. only with packages (gcc, binutils, make, flex, bison, m4, bc, perl,
+# libelf, openssl, kmod, bash, zlib, pkgconf...) and nothing from the build host. (It used to need the host's
+# compiler and bc, perl, libelf and OpenSSL headers: that is what packaging them removed.) The kernel does not
+# link against a libc, so musl vs glibc only decides which repository the result belongs to.
 #
 # Configuration: x86_64 defconfig plus the virtual-machine drivers (kvm_guest), with
 # everything the live system needs to reach its root made built in, so the initramfs
@@ -11,10 +11,13 @@
 #
 # Result: /boot/vmlinuz-$release, /boot/config-$release, /usr/lib/modules/$release (/lib/modules links to it).
 name        = "linux"
-version     = "7.3.3"
+version     = "7.3.3_r1"
 description = "Linux kernel 7.3 (defconfig base, boot drivers built in, every other driver as a module)"
 license     = "GPL-2.0 WITH Linux-syscall-note"
 libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers", "bc", "perl", "libelf", "flex", "bison", "m4", "zlib", "pkgconf", "bash", "openssl", "kmod"]
 
 [[source]]
 url    = "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.3.3.tar.xz"
@@ -24,32 +27,5 @@ sha256 = "79c66dde66cd96877fcde8f7d36aec946b1f423d2b97b5a7b1751b75c764f3d1"
 configure = '''
 sh "$RECIPE_DIR/full-config.sh" full
 '''
-compile = '''
-export KBUILD_BUILD_TIMESTAMP='1980-01-01'
-export KBUILD_BUILD_USER=forge KBUILD_BUILD_HOST=novara
-KC='-Wno-error -Wno-unterminated-string-initialization'
-make ARCH=x86_64 CC="gcc -std=gnu11" KCFLAGS="$KC" -j"$JOBS" bzImage
-# Thousands of modules: one that fails to build (kernel 6.12 against gcc 15) must not lose the rest.
-make -k ARCH=x86_64 CC="gcc -std=gnu11" KCFLAGS="$KC" -j"$JOBS" modules || echo "note: some modules failed to build and are left out" >&2
-built=$(find . -name '*.ko' | wc -l)
-echo "modules built: $built"
-[ "$built" -gt 1000 ] || { echo "far too few modules built ($built)" >&2; exit 1; }
-'''
-install = '''
-export KBUILD_BUILD_TIMESTAMP='1980-01-01'
-export KBUILD_BUILD_USER=forge KBUILD_BUILD_HOST=novara
-rel=$(make -s ARCH=x86_64 CC="gcc -std=gnu11" kernelrelease)
-mkdir -p "$DESTDIR/boot"
-cp arch/x86/boot/bzImage "$DESTDIR/boot/vmlinuz-$rel"
-cp .config "$DESTDIR/boot/config-$rel"
-# modules.order lists modules that failed to build too; install what exists, then index it ourselves.
-make -k ARCH=x86_64 CC="gcc -std=gnu11" INSTALL_MOD_PATH="$DESTDIR/usr" INSTALL_MOD_STRIP=1 modules_install || true
-depmod -a -b "$DESTDIR/usr" "$rel"
-test -s "$DESTDIR/usr/lib/modules/$rel/modules.dep"
-# /usr/lib/modules is the real directory; the build/source links point into the build tree.
-rm -f "$DESTDIR"/usr/lib/modules/*/build "$DESTDIR"/usr/lib/modules/*/source
-mkdir -p "$DESTDIR/lib"
-# modprobe looks in /lib/modules/<release>; the modules live under /usr/lib/modules.
-ln -s ../usr/lib/modules "$DESTDIR/lib/modules"
-test -f "$DESTDIR/boot/vmlinuz-$rel"
-'''
+compile = "sh \"$RECIPE_DIR/kernel-build.sh\" compile"
+install = "sh \"$RECIPE_DIR/kernel-build.sh\" install"

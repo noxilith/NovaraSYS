@@ -28,7 +28,7 @@ pub use gc::{GcReport, roots_from_snapshots};
 pub use id::{StoreId, sha256_hex};
 pub use manifest::{FileEntry, Kind, MANIFEST_PATH, Manifest};
 pub use profile::{Profile, ProfileGen};
-pub use remote::{Fetch, FetchHandle, RemoteRepo, SystemFetch, download_to_temp, is_url};
+pub use remote::{Fetch, FetchHandle, RemoteRepo, Repository, SystemFetch, download_to_temp, is_url};
 pub use repo::{Index, IndexEntry, Loaded, LocalRepo, Trust, resolve, version_cmp};
 pub use sign::{Keyring, PublicKey, SecretKey, SigFile, load_public_key, load_secret_key, write_key_pair};
 pub use store::{Store, remove_tree};

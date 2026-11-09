@@ -33,7 +33,8 @@ fn open_tar_stream(archive: &Path, scratch: &Path) -> Result<Box<dyn Read>, Buil
         return Ok(Box::new(f));
     }
     if name.ends_with(".tar.bz2") || name.ends_with(".tbz2") || name.ends_with(".tbz") {
-        return Ok(Box::new(bzip2_rs::DecoderReader::new(BufReader::new(open()?))));
+        // MultiBzDecoder: a .bz2 may be several concatenated streams, as pbzip2 writes them.
+        return Ok(Box::new(bzip2::read::MultiBzDecoder::new(BufReader::new(open()?))));
     }
     if name.ends_with(".tar") {
         return Ok(Box::new(BufReader::new(open()?)));
