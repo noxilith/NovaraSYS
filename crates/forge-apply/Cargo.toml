@@ -1,0 +1,15 @@
+[package]
+name = "forge-apply"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+forge-schema.workspace = true
+forge-store.workspace = true
+serde.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

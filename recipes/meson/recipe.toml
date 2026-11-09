@@ -1,0 +1,27 @@
+# meson is pure Python: its tree is installed under /usr/share/meson and run through a wrapper.
+name        = "meson"
+version     = "1.12.1"
+description = "Meson build system"
+license     = "Apache-2.0"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+run   = []
+
+[[source]]
+url    = "https://github.com/mesonbuild/meson/releases/download/1.12.1/meson-1.12.1.tar.gz"
+sha256 = "ab0a6ca09f8ef70c564c8241fb5a23957886a0b53fb58412b5e07eaf07dba743"
+
+[build]
+install = '''
+mkdir -p "$DESTDIR/usr/share/meson" "$DESTDIR/usr/bin"
+cp -R meson.py mesonbuild "$DESTDIR/usr/share/meson/"
+find "$DESTDIR" -name __pycache__ -type d -prune -exec rm -rf {} +
+cat > "$DESTDIR/usr/bin/meson" <<'WRAP'
+#!/bin/sh
+exec python3 /usr/share/meson/meson.py "$@"
+WRAP
+chmod 755 "$DESTDIR/usr/bin/meson"
+test -f "$DESTDIR/usr/share/meson/mesonbuild/mesonmain.py"
+'''

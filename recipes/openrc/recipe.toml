@@ -1,0 +1,31 @@
+# OpenRC, the init and service manager. Built with meson (hence python, ninja, meson and
+# libcap as build tools). No PAM, SELinux or audit; not in sysvinit mode, so the init is
+# `openrc-init` itself and the services are plain symlinks in /etc/runlevels/<level>/ (which
+# is exactly what `forge apply` manages).
+name        = "openrc"
+version     = "0.64.1"
+description = "OpenRC init and service manager"
+license     = "BSD-2-Clause"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers", "pkgconf", "python", "ninja", "meson", "libcap"]
+
+[[source]]
+url    = "https://github.com/OpenRC/openrc/archive/refs/tags/0.64.1.tar.gz"
+sha256 = "56d6d24c7fd2ca15d1abd1fb82ce5430629a71acb2c3fa12760300243dbd0baa"
+
+[build]
+configure = '''
+CC=gcc meson setup build --prefix=/usr --sysconfdir=/etc --libdir=lib --buildtype=release \
+    -Dpam=false -Dselinux=disabled -Daudit=disabled -Dnewnet=false -Dpkgconfig=false \
+    -Dbash-completions=false -Dzsh-completions=false -Dsysvinit=false -Dshell=/bin/sh -Dbranding='"NovaraSYS"'
+'''
+compile = "meson compile -C build -j $JOBS"
+install = '''
+mkdir -p "$DESTDIR/usr/libexec/rc"
+DESTDIR=$DESTDIR meson install -C build
+test -x "$DESTDIR/sbin/openrc-init"
+test -x "$DESTDIR/sbin/openrc-run"
+test -d "$DESTDIR/etc/init.d"
+'''

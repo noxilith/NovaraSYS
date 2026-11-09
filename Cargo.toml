@@ -1,0 +1,35 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+toml_edit = "0.22"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+thiserror = "2"
+forge-schema = { path = "crates/forge-schema" }
+forge-decl = { path = "crates/forge-decl" }
+forge-strap = { path = "crates/forge-strap" }
+forge-apply = { path = "crates/forge-apply" }
+forge-gen = { path = "crates/forge-gen" }
+tempfile = "3"
+rpassword = "7"
+sha2 = "0.10"
+tar = "0.4"
+ruzstd = "0.8"
+nix = { version = "0.29", default-features = false, features = ["sched", "mount", "fs", "user", "process", "signal", "hostname"] }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+lzma-rs = "0.3"
+bzip2-rs = "0.1"
+forge-build = { path = "crates/forge-build" }
+ed25519-dalek = { version = "2", default-features = false, features = ["std", "zeroize"] }
+forge-store = { path = "crates/forge-store" }
+forge-iso = { path = "crates/forge-iso" }
+forge-kernel = { path = "crates/forge-kernel" }

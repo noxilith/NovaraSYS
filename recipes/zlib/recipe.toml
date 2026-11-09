@@ -1,0 +1,24 @@
+# zlib, static library only (the strap tools are static, so nothing needs a shared one), but
+# position-independent so that shared objects (Python's zlib module) can link it.
+# CFLAGS has no -g, as in the other real recipes (debug info records the compiler's path).
+name        = "zlib"
+version     = "1.3.1_r1"
+description = "zlib compression library (static)"
+license     = "Zlib"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz"
+sha256 = "38ef96b8dfe510d42707d9c781877914792541133e1870841463bfa73f883e32"
+
+[build]
+configure = "CFLAGS='-O2 -fPIC' ./configure --prefix=/usr --static"
+compile   = "make -j$JOBS"
+install   = '''
+make DESTDIR=$DESTDIR install
+rm -rf "$DESTDIR/usr/share/man"
+test -f "$DESTDIR/usr/lib/libz.a"
+'''

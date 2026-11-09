@@ -1,0 +1,23 @@
+# libnl 3, static, for wpa_supplicant's nl80211 driver. No command-line tools.
+name        = "libnl"
+version     = "3.12.0"
+description = "Netlink library (static)"
+license     = "LGPL-2.1-only"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers", "pkgconf", "m4", "flex", "bison"]
+
+[[source]]
+url    = "https://github.com/thom311/libnl/releases/download/libnl3_12_0/libnl-3.12.0.tar.gz"
+sha256 = "fc51ca7196f1a3f5fdf6ffd3864b50f4f9c02333be28be4eeca057e103c0dd18"
+
+[build]
+configure = "./configure --prefix=/usr --sysconfdir=/etc --disable-shared --enable-static --disable-cli --disable-debug --disable-dependency-tracking CFLAGS='-O2'"
+compile   = "make -j$JOBS"
+install   = '''
+make DESTDIR=$DESTDIR install
+rm -rf "$DESTDIR/etc" "$DESTDIR/usr/share" "$DESTDIR"/usr/lib/*.la
+test -f "$DESTDIR/usr/lib/libnl-genl-3.a"
+test -f "$DESTDIR/usr/lib/pkgconfig/libnl-genl-3.0.pc"
+'''

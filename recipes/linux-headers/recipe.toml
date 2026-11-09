@@ -1,0 +1,33 @@
+# The Linux kernel's user-space API headers, generated from the kernel source:
+# this is the real `linux-headers` package. (The `-stage0` one is a copy of the
+# build host's headers, kept only to bootstrap.)
+#
+# `make headers` produces the sanitized headers in usr/include of the build tree.
+# `make headers_install` would do the same and then copy them with `rsync`,
+# which the build sandbox does not have, so the tree is copied here instead.
+name        = "linux-headers"
+version     = "6.12"
+description = "Linux kernel API headers (generated from the 6.12 source)"
+license     = "GPL-2.0 WITH Linux-syscall-note"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.tar.xz"
+# Matches the checksum kernel.org publishes for this file (in its PGP-signed
+# sha256sums.asc; the signature itself was not verified).
+sha256 = "b1a2562be56e42afb3f8489d4c2a7ac472ac23098f1ef1c1e40da601f54625eb"
+
+[build]
+compile = "make ARCH=x86_64 headers -j\"$JOBS\""
+install = '''
+mkdir -p "$DESTDIR/usr"
+cp -R usr/include "$DESTDIR/usr/include"
+# Build-tree artifacts that are not headers.
+rm -f "$DESTDIR/usr/include/Makefile" "$DESTDIR/usr/include/headers_check.pl"
+find "$DESTDIR/usr/include" -name '.*install*' -exec rm -f {} +
+test -f "$DESTDIR/usr/include/linux/version.h"
+test -f "$DESTDIR/usr/include/asm/unistd_64.h"
+'''

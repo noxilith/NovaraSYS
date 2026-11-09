@@ -1,0 +1,21 @@
+# The regulatory database the kernel consults for which Wi-Fi channels and power levels are allowed
+# in each country. Without it only the conservative "world" rules apply (some 5 GHz channels unusable).
+name        = "wireless-regdb"
+version     = "2026.09.03"
+description = "Wireless regulatory database (regulatory.db and its signature)"
+license     = "ISC"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://www.kernel.org/pub/software/network/wireless-regdb/wireless-regdb-2026.09.03.tar.xz"
+sha256 = "b22e0901227b820cd1c280abe681a15b773a5103a5e10dc442e94ebb34cbf58d"
+
+[build]
+install = '''
+mkdir -p "$DESTDIR/lib/firmware"
+cp regulatory.db regulatory.db.p7s "$DESTDIR/lib/firmware/"
+test -s "$DESTDIR/lib/firmware/regulatory.db"
+'''

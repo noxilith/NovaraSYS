@@ -1,0 +1,34 @@
+# ncurses with wide-character support, static only. cfdisk is the user of it.
+# The terminfo database is installed in full (about 3 MB), so any terminal works.
+name        = "ncurses"
+version     = "6.5_r1"
+description = "ncurses terminal library (static, wide characters) and terminfo"
+license     = "MIT"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://ftp.gnu.org/gnu/ncurses/ncurses-6.5.tar.gz"
+sha256 = "136d91bc269a9a5785e5f9e980bc76ab57428f604ce3e5a5a90cebc767971cc6"
+
+[build]
+configure = '''
+./configure --prefix=/usr --without-shared --with-normal --without-debug --without-cxx --without-cxx-binding     --without-ada --without-manpages --without-tests --enable-widec --with-termlib     --enable-overwrite --with-terminfo-dirs=/usr/share/terminfo --with-default-terminfo-dir=/usr/share/terminfo     --disable-stripping CFLAGS='-O2'
+'''
+compile   = "make -j$JOBS"
+install   = '''
+make DESTDIR=$DESTDIR install
+# Programs that look for -lcurses / -lncurses get the wide library.
+for l in curses ncurses form panel menu; do
+    ln -sf lib${l}w.a "$DESTDIR/usr/lib/lib${l}.a" 2>/dev/null || true
+done
+ln -sf libtinfow.a "$DESTDIR/usr/lib/libtinfo.a"
+rm -rf "$DESTDIR/usr/share/man"
+# Only libraries, headers and the terminfo database: the programs (clear, tput, tic...) would
+# clash with BusyBox applets, and nothing here runs them.
+rm -rf "$DESTDIR/usr/bin"
+test -f "$DESTDIR/usr/lib/libncursesw.a"
+test -f "$DESTDIR/usr/share/terminfo/l/linux"
+'''

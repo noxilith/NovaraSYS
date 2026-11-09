@@ -1,0 +1,63 @@
+# Stage 1 (bootstrap) binutils: assembler, linker and friends for the target
+# x86_64-linux-musl. They are linked statically (with the host's glibc, in
+# stage 1) so they run in a sandbox that contains no libc at all, and they are
+# installed under unprefixed names too (`ld`, `as`, ...) so a build that has
+# this package sees an ordinary native toolchain.
+name        = "binutils-stage1"
+version     = "2.43.1"
+description = "GNU binutils targeting x86_64-linux-musl (static)"
+license     = "GPL-3.0-or-later"
+libc        = ["musl"]
+
+[[source]]
+url    = "https://ftp.gnu.org/gnu/binutils/binutils-2.43.1.tar.xz"
+# Pinned from the first download (trust on first use); ftp.gnu.org publishes
+# only a PGP signature, which was not checked.
+sha256 = "13f74202a3c4c51118b797a39ea4200d3f6cfbe224da6d1d95bb938480132dfd"
+
+[build]
+# `-std=gnu17`: the host compiler defaults to C23, which rejects older code.
+# `--static` (two dashes!): fully static executables, and no plugins (they need
+# dlopen). A single-dash `-static` is interpreted by libtool, which then only
+# links libtool *libraries* statically and still produces dynamic programs.
+configure = '''
+mkdir -p /build/binutils-build
+cd /build/binutils-build
+"$SRC/configure" \
+    --prefix=/usr \
+    --target=x86_64-linux-musl \
+    --with-sysroot=/ \
+    --disable-nls --disable-multilib --disable-werror --disable-gprofng \
+    --disable-plugins --disable-shared --enable-static \
+    --enable-deterministic-archives --without-zstd \
+    CC='gcc -std=gnu17' LDFLAGS=--static MAKEINFO=true
+'''
+compile = "cd /build/binutils-build && make -j$JOBS MAKEINFO=true"
+install = '''
+cd /build/binutils-build
+make DESTDIR=$DESTDIR MAKEINFO=true install-strip
+
+cd "$DESTDIR/usr/bin"
+# The install makes hard links between usr/bin and usr/x86_64-linux-musl/bin;
+# use symlinks instead so the package does not carry every tool twice.
+for f in "$DESTDIR"/usr/x86_64-linux-musl/bin/*; do
+    name=$(basename "$f")
+    rm -f "$f"
+    ln -s "../../bin/x86_64-linux-musl-$name" "$f"
+done
+# Unprefixed names, so a build sees an ordinary native toolchain.
+for t in addr2line ar as c++filt elfedit gprof ld ld.bfd nm objcopy objdump ranlib readelf size strings strip; do
+    if [ -e "x86_64-linux-musl-$t" ]; then ln -sf "x86_64-linux-musl-$t" "$t"; fi
+done
+rm -rf "$DESTDIR/usr/share/info" "$DESTDIR/usr/share/man"
+
+# Self-check: every tool must be fully static (no program interpreter), or it
+# will not start in a sandbox that has no libc.
+for f in "$DESTDIR"/usr/bin/x86_64-linux-musl-*; do
+    interp=$(readelf -lW "$f" | grep -c INTERP || true)
+    if [ "$interp" != 0 ]; then
+        echo "$f is dynamically linked, but this package must be static" >&2
+        exit 1
+    fi
+done
+'''

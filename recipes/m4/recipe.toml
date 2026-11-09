@@ -1,0 +1,23 @@
+# -std=gnu17: m4 1.4.19 has K&R-style declarations that mean "no arguments" in C23 (gcc 15's default).
+name        = "m4"
+version     = "1.4.19"
+description = "GNU macro processor"
+license     = "GPL-3.0-or-later"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://ftp.gnu.org/gnu/m4/m4-1.4.19.tar.xz"
+sha256 = "63aede5c6d33b6d9b13511cd0be2cac046f2e70fd0a07aa9573a04a82783af96"
+
+[build]
+configure = "./configure --prefix=/usr --disable-nls --disable-dependency-tracking CFLAGS='-O2 -std=gnu17' LDFLAGS=--static"
+compile   = "make -j$JOBS"
+install   = '''
+make DESTDIR=$DESTDIR install
+rm -rf "$DESTDIR/usr/share/info" "$DESTDIR/usr/share/man"
+strip "$DESTDIR/usr/bin/m4"
+test -x "$DESTDIR/usr/bin/m4"
+'''

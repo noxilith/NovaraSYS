@@ -1,0 +1,158 @@
+# Stage 1 (bootstrap) GCC: C and C++ compilers (with a static libstdc++) targeting
+# x86_64-linux-musl, linked statically so they run in a sandbox that has no
+# libc. Built by the host compiler, because nothing in the store can compile
+# yet; a later stage rebuilds it with itself.
+#
+# One build, four stages, because the build has no other source of tools:
+#   1. cross binutils (only to build gcc; not part of this package)
+#   2. a musl sysroot and the kernel headers (same: build-time only)
+#   3. gmp, mpfr and mpc, unpacked inside the gcc source tree
+#   4. gcc itself
+# The run-time dependencies are what the compiler needs to be useful once
+# installed: the assembler/linker, and the C library and kernel headers it
+# compiles against (it is configured with `--with-sysroot=/`).
+name        = "gcc-stage1"
+version     = "14.2.0"
+description = "GNU Compiler Collection (C, C++) targeting x86_64-linux-musl, static"
+license     = "GPL-3.0-or-later WITH GCC-exception-3.1"
+libc        = ["musl"]
+
+[depends]
+run = ["binutils-stage1", "musl-stage0", "linux-headers-stage0"]
+
+# $SRC is the first source: gcc itself.
+[[source]]
+url    = "https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz"
+# Pinned from the first download (trust on first use); ftp.gnu.org publishes
+# only a PGP signature, which was not checked.
+sha256 = "a7b39bc69cbf9e25826c5a60ab26477001f7c08d85cec04bc0e29cabed6f3cc9"
+
+[[source]]
+url    = "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz"
+sha256 = "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898"
+
+[[source]]
+url    = "https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.1.tar.xz"
+sha256 = "277807353a6726978996945af13e52829e3abd7a9a5b7fb2793894e18f1fcbb2"
+
+[[source]]
+url    = "https://ftp.gnu.org/gnu/mpc/mpc-1.3.1.tar.gz"
+sha256 = "ab642492f5cf882b74aa0cb730cd410a81edcdbec895183ce930e706c1c759b8"
+
+[[source]]
+url    = "https://ftp.gnu.org/gnu/binutils/binutils-2.43.1.tar.xz"
+sha256 = "13f74202a3c4c51118b797a39ea4200d3f6cfbe224da6d1d95bb938480132dfd"
+
+[[source]]
+url    = "https://musl.libc.org/releases/musl-1.2.5.tar.gz"
+sha256 = "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4"
+
+[build]
+# Every `make install` below passes DESTDIR= explicitly: forge exports DESTDIR
+# to every step, and make would otherwise install these helper builds into the
+# package's own output. `-std=gnu17`/`gnu++17`: the host compiler defaults to
+# C23, which older code (gmp's configure, gcc's K&R declarations) rejects.
+prepare = '''
+# ---- 1. cross binutils, used only to build gcc
+mkdir -p /build/src-binutils /build/bu
+tar --no-same-owner -xJf /sources/binutils-2.43.1.tar.xz -C /build/src-binutils
+cd /build/bu
+/build/src-binutils/binutils-2.43.1/configure \
+    --prefix=/build/cross --target=x86_64-linux-musl --with-sysroot=/build/sysroot \
+    --disable-nls --disable-multilib --disable-werror --disable-gprofng \
+    --disable-plugins --enable-deterministic-archives --without-zstd \
+    CC='gcc -std=gnu17' MAKEINFO=true
+make -j"$JOBS" MAKEINFO=true
+make DESTDIR= MAKEINFO=true install
+
+# ---- 2. a musl sysroot and the kernel headers, used only to build gcc
+mkdir -p /build/src-musl
+tar --no-same-owner -xzf /sources/musl-1.2.5.tar.gz -C /build/src-musl
+cd /build/src-musl/musl-1.2.5
+./configure --prefix=/usr --syslibdir=/lib
+make -j"$JOBS"
+make DESTDIR=/build/sysroot install
+for d in asm asm-generic drm linux misc mtd rdma sound video xen; do
+    for base in /usr/include /usr/include/x86_64-linux-gnu; do
+        if [ -d "$base/$d" ]; then cp -R "$base/$d" /build/sysroot/usr/include/; break; fi
+    done
+done
+
+# ---- 3. gmp, mpfr and mpc inside the gcc source tree, so gcc builds them itself
+cd "$SRC"
+tar --no-same-owner -xJf /sources/gmp-6.3.0.tar.xz && mv gmp-6.3.0 gmp
+tar --no-same-owner -xJf /sources/mpfr-4.2.1.tar.xz && mv mpfr-4.2.1 mpfr
+tar --no-same-owner -xzf /sources/mpc-1.3.1.tar.gz && mv mpc-1.3.1 mpc
+
+# ---- 4. musl keeps its libraries in /lib and /usr/lib; gcc defaults 64-bit
+# libraries to lib64 (installing libstdc++ there, and searching there). This is
+# the change musl-based distributions make before configuring.
+sed -i 's|m64=\.\./lib64|m64=../lib|' "$SRC/gcc/config/i386/t-linux64"
+remaining=$(grep -c 'm64=\.\./lib64' "$SRC/gcc/config/i386/t-linux64" || true)
+if [ "$remaining" != 0 ]; then
+    echo "could not switch gcc's 64-bit library directory to lib" >&2
+    exit 1
+fi
+'''
+
+# `--static` (two dashes): see the binutils recipe. Languages: C and C++ (gcc is
+# itself written in C++, so a self-hosting stage needs the C++ compiler).
+# Everything optional that is slow, needs shared libraries, or does not work
+# on musl is disabled.
+configure = '''
+export PATH=/build/cross/bin:$PATH
+mkdir -p /build/gcc-build
+cd /build/gcc-build
+"$SRC/configure" \
+    --prefix=/usr \
+    --target=x86_64-linux-musl \
+    --with-sysroot=/ --with-build-sysroot=/build/sysroot \
+    --with-native-system-header-dir=/usr/include \
+    --enable-languages=c,c++ \
+    --disable-multilib --disable-nls --disable-bootstrap --disable-werror \
+    --disable-shared --disable-plugin --disable-lto \
+    --disable-libsanitizer --disable-libquadmath --disable-libgomp \
+    --disable-libitm --disable-libvtv --disable-libssp --disable-libstdcxx-pch \
+    --enable-threads=posix --enable-tls --enable-__cxa_atexit \
+    --with-arch=x86-64 --with-tune=generic \
+    CC='gcc -std=gnu17' CXX='g++ -std=gnu++17' LDFLAGS=--static MAKEINFO=true
+'''
+
+compile = '''
+export PATH=/build/cross/bin:$PATH
+cd /build/gcc-build
+make -j"$JOBS" MAKEINFO=true
+'''
+
+install = '''
+export PATH=/build/cross/bin:$PATH
+cd /build/gcc-build
+make DESTDIR=$DESTDIR MAKEINFO=true install-strip
+
+cd "$DESTDIR/usr/bin"
+# The install makes hard links (gcc / gcc-14.2.0, c++ / g++); use symlinks so
+# the package does not carry a compiler twice.
+ln -sf x86_64-linux-musl-gcc x86_64-linux-musl-gcc-14.2.0
+ln -sf x86_64-linux-musl-g++ x86_64-linux-musl-c++
+# Unprefixed names, so a build sees an ordinary native toolchain.
+for t in gcc g++ c++ cpp gcc-ar gcc-nm gcc-ranlib; do
+    if [ -e "x86_64-linux-musl-$t" ]; then ln -sf "x86_64-linux-musl-$t" "$t"; fi
+done
+ln -sf x86_64-linux-musl-gcc cc
+rm -rf "$DESTDIR/usr/share/info" "$DESTDIR/usr/share/man"
+
+# Self-checks: the compilers must be fully static, and the target libraries
+# must exist.
+for f in "$DESTDIR/usr/bin/x86_64-linux-musl-gcc" "$DESTDIR/usr/bin/x86_64-linux-musl-g++" \
+         "$DESTDIR"/usr/libexec/gcc/x86_64-linux-musl/14.2.0/cc1 \
+         "$DESTDIR"/usr/libexec/gcc/x86_64-linux-musl/14.2.0/cc1plus \
+         "$DESTDIR"/usr/libexec/gcc/x86_64-linux-musl/14.2.0/collect2; do
+    interp=$(readelf -lW "$f" | grep -c INTERP || true)
+    if [ "$interp" != 0 ]; then
+        echo "$f is dynamically linked, but this package must be static" >&2
+        exit 1
+    fi
+done
+test -f "$DESTDIR/usr/lib/gcc/x86_64-linux-musl/14.2.0/libgcc.a"
+test -f "$DESTDIR/usr/x86_64-linux-musl/lib/libstdc++.a"
+'''

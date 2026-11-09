@@ -1,0 +1,16 @@
+name        = "musl-stage0"
+version     = "1.2.5"
+description = "The musl C library"
+license     = "MIT"
+libc        = ["musl"]
+
+[[source]]
+url    = "https://musl.libc.org/releases/musl-1.2.5.tar.gz"
+# Pinned from the first download (trust on first use): musl.libc.org publishes
+# a PGP signature but no checksum that could be compared here.
+sha256 = "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4"
+
+[build]
+configure = "./configure --prefix=/usr --syslibdir=/lib"
+compile   = "make -j$JOBS"
+install   = "make DESTDIR=$DESTDIR install"

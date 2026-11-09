@@ -1,0 +1,24 @@
+# efivar's static libraries and headers (libefivar, libefiboot), for efibootmgr.
+# The `efivar` tool is not installed. EXPERIMENTAL on musl: see the notes in DESIGN.md.
+name        = "efivar"
+version     = "39"
+description = "Library for the UEFI variable facility (static)"
+license     = "LGPL-2.1-only"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers", "pkgconf"]
+
+[[source]]
+url    = "https://github.com/rhboot/efivar/archive/refs/tags/39.tar.gz"
+sha256 = "c9edd15f2eeeea63232f3e669a48e992c7be9aff57ee22672ac31f5eca1609a6"
+
+[build]
+compile = "make -j$JOBS TOPDIR=$PWD -C src libefivar.a libefiboot.a CC=gcc CFLAGS='-O2 -D_GNU_SOURCE -Wno-error' HOSTCC=gcc"
+install = '''
+mkdir -p "$DESTDIR/usr/lib" "$DESTDIR/usr/include/efivar" "$DESTDIR/usr/lib/pkgconfig"
+install -m 644 src/libefivar.a src/libefiboot.a "$DESTDIR/usr/lib/"
+install -m 644 src/include/efivar/*.h "$DESTDIR/usr/include/efivar/"
+install -m 644 src/efivar.pc src/efiboot.pc "$DESTDIR/usr/lib/pkgconfig/"
+test -f "$DESTDIR/usr/lib/libefivar.a"
+'''

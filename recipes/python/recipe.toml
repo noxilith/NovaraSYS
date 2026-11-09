@@ -1,0 +1,28 @@
+# CPython, a build tool only for now (meson and ninja's bootstrap run on it). Trimmed: no
+# tests, IDLE, Tk, ensurepip or bytecode caches. Optional modules whose libraries are not packages
+# (ssl, sqlite3, ctypes, readline...) are simply not built.
+name        = "python"
+version     = "3.12.16_r1"
+description = "Python interpreter"
+license     = "PSF-2.0"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers", "zlib"]
+
+[[source]]
+url    = "https://www.python.org/ftp/python/3.12.16/Python-3.12.16.tar.xz"
+sha256 = "b5796915dc45ff745cfb4e990a7e7c93d6f546328a102ce31448d69ebc37575c"
+
+[build]
+# forge exports LIBC=musl to every step; CPython's configure would take it as a library to link.
+configure = "env -u LIBC ./configure --prefix=/usr --without-ensurepip --disable-test-modules --without-doc-strings OPT='-DNDEBUG -fwrapv -O2'"
+compile   = "make -j$JOBS"
+install   = '''
+make DESTDIR=$DESTDIR install
+cd "$DESTDIR/usr/lib/python3.12"
+rm -rf test idlelib tkinter turtledemo lib2to3 ensurepip config-3.12-*/libpython3.12.a
+find "$DESTDIR" -name __pycache__ -type d -prune -exec rm -rf {} +
+ln -sf python3 "$DESTDIR/usr/bin/python"
+test -x "$DESTDIR/usr/bin/python3"
+'''

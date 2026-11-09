@@ -1,0 +1,25 @@
+# Stage 0: the kernel's user-space API headers, copied from the build host.
+# These are plain C headers that do not depend on any libc, but copying them
+# from the host makes this package impure (its hash does not cover their
+# content). A later stage builds them from the kernel source instead.
+# `scsi/` is deliberately not copied: on a glibc host that directory holds
+# glibc's own headers (scsi.h, sg.h), which musl also ships.
+name        = "linux-headers-stage0"
+version     = "0.stage0"
+description = "Linux kernel API headers (stage 0: copied from the build host)"
+license     = "GPL-2.0 WITH Linux-syscall-note"
+libc        = ["musl", "glibc"]
+
+[build]
+install = '''
+mkdir -p "$DESTDIR/usr/include"
+for d in asm asm-generic drm linux misc mtd rdma sound video xen; do
+    for base in /usr/include /usr/include/x86_64-linux-gnu; do
+        if [ -d "$base/$d" ]; then
+            cp -R "$base/$d" "$DESTDIR/usr/include/"
+            break
+        fi
+    done
+done
+test -f "$DESTDIR/usr/include/linux/version.h"
+'''

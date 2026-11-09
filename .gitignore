@@ -1,0 +1,7 @@
+/target
+/sources
+/repo
+/packages
+/keys
+*.iso
+/novara-live.iso.work

@@ -1,0 +1,23 @@
+# efibootmgr: creates the firmware boot entry for the installed system (`forge strap` treats a
+# failure here as a warning only). Static, against efivar's static libraries.
+name        = "efibootmgr"
+version     = "18"
+description = "UEFI boot manager entries tool"
+license     = "GPL-2.0-or-later"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers", "pkgconf", "efivar"]
+
+[[source]]
+url    = "https://github.com/rhboot/efibootmgr/archive/refs/tags/18.tar.gz"
+sha256 = "442867d12f8525034a404fc8af3036dba8e1fc970998af2486c3b940dfad0874"
+
+[build]
+compile = "make -j$JOBS TOPDIR=$PWD -C src efibootmgr CC=gcc CFLAGS='-O2 -D_GNU_SOURCE -Wno-error -I/usr/include/efivar' LDFLAGS=--static EFIDIR=novara"
+install = '''
+mkdir -p "$DESTDIR/usr/sbin"
+install -m 755 src/efibootmgr "$DESTDIR/usr/sbin/efibootmgr"
+strip "$DESTDIR/usr/sbin/efibootmgr"
+if readelf -lW "$DESTDIR/usr/sbin/efibootmgr" | grep -q INTERP; then echo "efibootmgr is dynamic" >&2; exit 1; fi
+'''

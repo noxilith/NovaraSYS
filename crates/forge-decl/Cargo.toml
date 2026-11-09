@@ -1,0 +1,10 @@
+[package]
+name = "forge-decl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+forge-schema.workspace = true
+toml_edit.workspace = true
+thiserror.workspace = true

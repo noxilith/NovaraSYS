@@ -1,0 +1,23 @@
+# libcap, static and position-independent (OpenRC's shared libraries link it). Library only: the
+# programs need bash (a helper script), which is not a package yet.
+name        = "libcap"
+version     = "2.78"
+description = "POSIX capabilities library (static)"
+license     = "BSD-3-Clause OR GPL-2.0-only"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers", "pkgconf"]
+
+[[source]]
+url    = "https://cdn.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-2.78.tar.xz"
+sha256 = "0d621e562fd932ccf67b9660fb018e468a683d7b827541df27813228c996bb11"
+
+[build]
+compile = "make -j$JOBS -C libcap prefix=/usr lib=lib SHARED=no GOLANG=no PAM_CAP=no RAISE_SETFCAP=no DEBUG= CFLAGS='-O2 -fPIC'"
+install = '''
+make -C libcap DESTDIR=$DESTDIR prefix=/usr lib=lib SHARED=no GOLANG=no PAM_CAP=no RAISE_SETFCAP=no DEBUG= CFLAGS='-O2 -fPIC' install
+rm -rf "$DESTDIR/usr/share/man" "$DESTDIR/usr/share/doc"
+test -f "$DESTDIR/usr/lib/libcap.a"
+test -f "$DESTDIR/usr/lib/pkgconfig/libcap.pc"
+'''

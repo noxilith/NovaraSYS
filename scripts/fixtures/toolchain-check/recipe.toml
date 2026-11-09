@@ -1,0 +1,17 @@
+# Compiles and runs C and C++ programs with the compiler from the store and
+# nothing from the host. Used to prove that stage 1 gave Novara a working
+# toolchain: `forge build --tools store` with gcc, binutils, make and BusyBox.
+name        = "toolchain-check"
+version     = "1"
+description = "Checks that the store's compiler can build and run C and C++"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[build]
+compile = "make -f $RECIPE_DIR/Makefile"
+install = '''
+mkdir -p "$DESTDIR/check"
+cp result.txt "$DESTDIR/check/result.txt"
+'''

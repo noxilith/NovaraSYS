@@ -1,0 +1,41 @@
+# BusyBox, built natively on musl by the store's compiler: this is the real
+# `busybox` package. (The `-stage0` one was built by the host's gcc, only to
+# bootstrap.) One static binary that provides the shell and the core utilities.
+name        = "busybox"
+version     = "1.36.1_r1"
+description = "BusyBox: a static shell and core utilities"
+license     = "GPL-2.0-only"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://busybox.net/downloads/busybox-1.36.1.tar.bz2"
+# Matches the checksum busybox.net publishes next to the tarball.
+sha256 = "b8cc24c9574d809e7279c3be349795c5d5ceb6fdf19ca709f80cde50e47de314"
+
+[build]
+# Static; without `tc` (no longer builds against current kernel headers) and
+# without the `strings` applet, which binutils provides: two packages may not
+# supply the same file, and the real tool should win.
+prepare = '''
+make defconfig
+sed -i -e 's/^# CONFIG_STATIC is not set/CONFIG_STATIC=y/' -e 's/^CONFIG_TC=y/# CONFIG_TC is not set/' -e 's/^CONFIG_STRINGS=y/# CONFIG_STRINGS is not set/' .config
+'''
+compile = "make -j$JOBS"
+install = '''
+make CONFIG_PREFIX=$DESTDIR install
+# Self-check: musl, not glibc, and static.
+glibc_marks=$(strings "$DESTDIR/bin/busybox" | grep -c 'glibc\.malloc' || true)
+musl_marks=$(strings "$DESTDIR/bin/busybox" | grep -c 'No error information' || true)
+if [ "$glibc_marks" != 0 ] || [ "$musl_marks" = 0 ]; then
+    echo "busybox is not linked against musl" >&2
+    exit 1
+fi
+interp=$(readelf -lW "$DESTDIR/bin/busybox" | grep -c INTERP || true)
+if [ "$interp" != 0 ]; then
+    echo "busybox is dynamically linked, but must be static" >&2
+    exit 1
+fi
+'''

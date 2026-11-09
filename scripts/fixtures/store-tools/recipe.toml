@@ -1,0 +1,16 @@
+# A build whose only tools come from the store: BusyBox (shell and core
+# utilities) and GNU make. Used to prove `forge build --tools store` end to end.
+name        = "store-tools-check"
+version     = "1"
+description = "Checks that builds can run with store-provided tools only"
+libc        = ["musl", "glibc"]
+
+[depends]
+build = ["busybox", "make"]
+
+[build]
+compile = "make -f $RECIPE_DIR/Makefile"
+install = '''
+mkdir -p "$DESTDIR/check"
+cp result.txt "$DESTDIR/check/result.txt"
+'''

@@ -1,0 +1,35 @@
+# Firmware for wireless (and Ethernet) hardware, from the linux-firmware repository: every Wi-Fi
+# vendor the kernel has a driver for (Intel iwlwifi, Atheros ath*, Broadcom brcm/cypress, Realtek
+# rtw88/rtw89/rtlwifi, MediaTek mt76, Marvell, Ralink, ...) and Realtek Ethernet. Graphics, sound,
+# DVB, storage and the rest of the repository are left out (they are most of its size).
+name        = "linux-firmware-wifi"
+version     = "20261019"
+description = "Wi-Fi and Ethernet firmware from linux-firmware"
+license     = "Redistributable firmware (see /usr/share/licenses/linux-firmware)"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://cdn.kernel.org/pub/linux/kernel/firmware/linux-firmware-20261019.tar.xz"
+sha256 = "a10d1ab5baf2c74ba92e8c7cf313e691696c26bddfa6df00db795e48d70cd4ca"
+
+[build]
+install = '''
+fw="$DESTDIR/lib/firmware"
+mkdir -p "$fw"
+for d in intel/iwlwifi ath10k ath11k ath12k ath6k ath9k_htc brcm cypress mediatek mrvl nxp libertas \
+         rsi rtlwifi rtw88 rtw89 rtl_nic ti-connectivity atmel mwlwifi mwl8k morsemicro; do
+    if [ -e "$d" ]; then mkdir -p "$fw/$(dirname "$d")"; cp -R "$d" "$fw/$d"; fi
+done
+for f in carl9170-1.fw ar5523.bin ar7010.fw ar7010_1_1.fw ar9170-1.fw ar9170-2.fw ar9271.fw \
+         htc_7010.fw htc_9271.fw lbtf_usb.bin rsi_91x.fw rt2561.bin rt2561s.bin rt2661.bin \
+         rt2860.bin rt2870.bin rt3071.bin rt3290.bin rt73.bin agere_ap_fw.bin agere_sta_fw.bin; do
+    if [ -e "$f" ]; then cp "$f" "$fw/$f"; fi
+done
+mkdir -p "$DESTDIR/usr/share/licenses/linux-firmware"
+cp -R LICENSE LICENSES "$DESTDIR/usr/share/licenses/linux-firmware/" 2>/dev/null || true
+test -d "$fw/intel/iwlwifi"
+test -d "$fw/rtw89"
+'''

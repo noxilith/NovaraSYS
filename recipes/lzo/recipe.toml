@@ -1,0 +1,21 @@
+name        = "lzo"
+version     = "2.10"
+description = "LZO compression library (static)"
+license     = "GPL-2.0-or-later"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://www.oberhumer.com/opensource/lzo/download/lzo-2.10.tar.gz"
+sha256 = "c0f892943208266f9b6543b3ae308fab6284c5c90e627931446fb49b4221a072"
+
+[build]
+configure = "./configure --prefix=/usr --enable-static --disable-shared --disable-dependency-tracking CFLAGS='-O2'"
+compile   = "make -j$JOBS"
+install   = '''
+make DESTDIR=$DESTDIR install
+rm -rf "$DESTDIR/usr/share/doc"
+test -f "$DESTDIR/usr/lib/liblzo2.a"
+'''

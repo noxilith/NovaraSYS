@@ -1,0 +1,48 @@
+# The parts of util-linux the installer uses: cfdisk, fdisk, sfdisk, blkid, lsblk, wipefs,
+# plus the static libuuid and libblkid that btrfs-progs links. Everything else is off.
+# Programs BusyBox also has (fdisk, blkid, ...) win over its applet links in the live image.
+name        = "util-linux"
+version     = "2.40.2_r2"
+description = "Disk partitioning and block device tools (cfdisk, fdisk, sfdisk, blkid, lsblk, agetty, wipefs)"
+license     = "GPL-2.0-or-later"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers", "ncurses", "zlib"]
+
+[[source]]
+url    = "https://cdn.kernel.org/pub/linux/utils/util-linux/v2.40/util-linux-2.40.2.tar.xz"
+sha256 = "d78b37a66f5922d70edf3bdfb01a6b33d34ed3c3cafd6628203b2a2b67c8e8b3"
+
+[build]
+configure = '''
+# lsblk is the one program here without its own --enable switch, so --disable-all-programs would
+# switch it off for good (`ul_default_estate=no` overrides it). Make its block ignore that default.
+n=$(grep -n '^  enable_lsblk=\$ul_default_estate$' configure | cut -d: -f1)
+test -n "$n" || { echo "util-linux configure changed: cannot enable lsblk" >&2; exit 1; }
+sed -i "$((n-1))s/.*/  if false; then/" configure
+./configure --prefix=/usr --sbindir=/usr/sbin --disable-all-programs --disable-shared --enable-static \
+    --enable-libuuid --enable-libblkid --enable-libmount --enable-libsmartcols --enable-libfdisk \
+    --enable-fdisks --enable-blkid --enable-lsblk --enable-agetty --enable-wipefs \
+    --with-ncursesw --without-python --without-systemd --without-udev --without-readline --without-tinfo \
+    --disable-nls --disable-bash-completion --disable-asciidoc --disable-poman \
+    --disable-makeinstall-chown --disable-makeinstall-setuid --disable-dependency-tracking \
+    NCURSESW_CFLAGS='-I/usr/include' NCURSESW_LIBS='-lncursesw -ltinfow' \
+    CFLAGS='-O2' LDFLAGS=--static
+'''
+compile   = "make -j$JOBS"
+install   = '''
+make DESTDIR=$DESTDIR install
+rm -rf "$DESTDIR/usr/share/man" "$DESTDIR/usr/share/doc" "$DESTDIR/usr/share/bash-completion"
+rm -f "$DESTDIR"/usr/lib/*.la
+for b in cfdisk fdisk sfdisk blkid wipefs lsblk agetty; do
+    f=$(ls "$DESTDIR"/usr/sbin/$b "$DESTDIR"/usr/bin/$b "$DESTDIR"/bin/$b "$DESTDIR"/sbin/$b 2>/dev/null | head -1)
+    test -n "$f" || { echo "util-linux did not build $b" >&2; exit 1; }
+    strip "$f"
+    if readelf -lW "$f" | grep -q INTERP; then echo "$b is dynamic" >&2; exit 1; fi
+done
+# OpenRC's agetty service runs /sbin/agetty.
+mkdir -p "$DESTDIR/sbin"
+ln -sf ../usr/sbin/agetty "$DESTDIR/sbin/agetty"
+test -f "$DESTDIR/usr/lib/libblkid.a" && test -f "$DESTDIR/usr/lib/libuuid.a"
+'''

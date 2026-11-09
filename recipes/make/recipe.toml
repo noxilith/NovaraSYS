@@ -1,0 +1,41 @@
+# GNU make, built natively on musl by the store's compiler: this is the real
+# `make` package. (The `-stage0` one was built by the host's gcc, only to
+# bootstrap.)
+#
+# CFLAGS is -O2 WITHOUT -g (autoconf's default is -g -O2): debug info records
+# the compiler's location, which in a store contains its package id, so a binary
+# carrying it would differ from one built by another generation of the same
+# compiler even though the code is identical. The binary is stripped anyway.
+name        = "make"
+version     = "4.4.1"
+description = "GNU make"
+license     = "GPL-3.0-or-later"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz"
+# Pinned from the first download (trust on first use).
+sha256 = "dd16fb1d67bfab79a72f5e8390735c49e3e8e70b4945a15ab1f81ddb78658fb3"
+
+[build]
+configure = "./configure --prefix=/usr --without-guile --disable-nls --disable-load --disable-dependency-tracking CFLAGS='-O2' LDFLAGS=--static"
+compile   = "make -j$JOBS"
+install   = '''
+make DESTDIR=$DESTDIR install-exec
+strip "$DESTDIR/usr/bin/make"
+# Self-check: musl, not glibc, and static.
+glibc_marks=$(strings "$DESTDIR/usr/bin/make" | grep -c 'glibc\.malloc' || true)
+musl_marks=$(strings "$DESTDIR/usr/bin/make" | grep -c 'No error information' || true)
+if [ "$glibc_marks" != 0 ] || [ "$musl_marks" = 0 ]; then
+    echo "make is not linked against musl" >&2
+    exit 1
+fi
+interp=$(readelf -lW "$DESTDIR/usr/bin/make" | grep -c INTERP || true)
+if [ "$interp" != 0 ]; then
+    echo "make is dynamically linked, but must be static" >&2
+    exit 1
+fi
+'''

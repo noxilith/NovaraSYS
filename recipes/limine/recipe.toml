@@ -1,0 +1,29 @@
+# Limine's own installer tool (built from source) with the matching boot files from the
+# project's binary release. The bootloader itself needs NASM and a freestanding toolchain
+# to build, which are not packages yet, so the release's prebuilt files are used. The
+# 12.6.1 BOOTX64.EFI is byte-identical to the one the author's distribution ships.
+name        = "limine"
+version     = "12.6.1"
+description = "Limine bootloader: the limine tool and the BIOS/UEFI boot files"
+license     = "BSD-2-Clause"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://github.com/Limine-Bootloader/Limine/releases/download/v12.6.1/limine-binary.tar.xz"
+sha256 = "1d7f71df1614110892eadb35bad7b7f4277ca0d2dbf8575512da333a546009a7"
+
+[build]
+compile = "gcc -O2 -std=gnu11 -static -o limine limine.c"
+install = '''
+mkdir -p "$DESTDIR/usr/bin" "$DESTDIR/usr/share/limine"
+install -m 755 limine "$DESTDIR/usr/bin/limine"
+strip "$DESTDIR/usr/bin/limine"
+for f in BOOTX64.EFI BOOTIA32.EFI BOOTAA64.EFI BOOTRISCV64.EFI BOOTLOONGARCH64.EFI \
+         limine-bios.sys limine-bios-cd.bin limine-bios-pxe.bin limine-bios-hdd.h limine-uefi-cd.bin LICENSE; do
+    install -m 644 "$f" "$DESTDIR/usr/share/limine/$f"
+done
+test -f "$DESTDIR/usr/share/limine/limine-bios.sys"
+'''

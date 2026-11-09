@@ -1,0 +1,32 @@
+# mkfs.btrfs and btrfs, static. Only what the installer and generations use; no documentation,
+# no udev, no conversion from ext4 (that needs e2fsprogs), no Python bindings.
+name        = "btrfs-progs"
+version     = "6.11"
+description = "Btrfs tools: mkfs.btrfs, btrfs, btrfstune"
+license     = "GPL-2.0-only"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers", "pkgconf", "util-linux", "zlib", "zstd", "lzo"]
+
+[[source]]
+url    = "https://cdn.kernel.org/pub/linux/kernel/people/kdave/btrfs-progs/btrfs-progs-v6.11.tar.xz"
+sha256 = "ff9ae91521303a90d87e1c4be230f0121f39c44ddbe52c2aeae263c6fecfa099"
+
+[build]
+configure = '''
+./configure --prefix=/usr --disable-documentation --disable-python --disable-zoned --disable-libudev \
+    --disable-convert --disable-backtrace --disable-shared \
+    CFLAGS='-O2'
+'''
+compile   = "make -j$JOBS btrfs.static mkfs.btrfs.static btrfstune.static"
+install   = '''
+mkdir -p "$DESTDIR/usr/bin"
+install -m 755 btrfs.static "$DESTDIR/usr/bin/btrfs"
+install -m 755 mkfs.btrfs.static "$DESTDIR/usr/bin/mkfs.btrfs"
+install -m 755 btrfstune.static "$DESTDIR/usr/bin/btrfstune"
+strip "$DESTDIR"/usr/bin/btrfs "$DESTDIR"/usr/bin/mkfs.btrfs "$DESTDIR"/usr/bin/btrfstune
+for b in btrfs mkfs.btrfs btrfstune; do
+    if readelf -lW "$DESTDIR/usr/bin/$b" | grep -q INTERP; then echo "$b is dynamic" >&2; exit 1; fi
+done
+'''

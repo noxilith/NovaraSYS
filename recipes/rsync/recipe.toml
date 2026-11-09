@@ -1,0 +1,26 @@
+name        = "rsync"
+version     = "3.3.0"
+description = "File copying tool (what forge strap copies the live system with)"
+license     = "GPL-3.0-or-later"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://download.samba.org/pub/rsync/src/rsync-3.3.0.tar.gz"
+sha256 = "7399e9a6708c32d678a72a63219e96f23be0be2336e50fd1348498d07041df90"
+
+[build]
+configure = '''
+./configure --prefix=/usr --disable-openssl --disable-xxhash --disable-zstd --disable-lz4 \
+    --disable-acl-support --disable-md2man --disable-locale --disable-iconv --disable-roll-simd \
+    --with-included-popt --with-included-zlib CFLAGS='-O2' LDFLAGS=--static
+'''
+compile   = "make -j$JOBS"
+install   = '''
+make DESTDIR=$DESTDIR install
+rm -rf "$DESTDIR/usr/share/man"
+strip "$DESTDIR/usr/bin/rsync"
+if readelf -lW "$DESTDIR/usr/bin/rsync" | grep -q INTERP; then echo "rsync is dynamic" >&2; exit 1; fi
+'''

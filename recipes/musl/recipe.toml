@@ -1,0 +1,30 @@
+# The musl C library, built natively by the store's compiler: this is the real
+# `musl` package. (The `-stage0` one was built by the host's gcc, through the
+# musl-gcc wrapper, only to bootstrap.)
+name        = "musl"
+version     = "1.2.5"
+description = "The musl C library"
+license     = "MIT"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://musl.libc.org/releases/musl-1.2.5.tar.gz"
+# Pinned from the first download (trust on first use): musl.libc.org publishes
+# a PGP signature but no checksum that could be compared here.
+sha256 = "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4"
+
+[build]
+configure = "./configure --prefix=/usr --syslibdir=/lib"
+compile   = "make -j$JOBS"
+install   = '''
+make DESTDIR=$DESTDIR install
+# musl-gcc is a wrapper for compiling against musl with a NON-musl gcc. A
+# native toolchain does not need it, and its specs file hard-codes paths.
+rm -f "$DESTDIR/usr/bin/musl-gcc" "$DESTDIR/usr/lib/musl-gcc.specs"
+rmdir "$DESTDIR/usr/bin" 2>/dev/null || true
+test -f "$DESTDIR/usr/lib/libc.a"
+test -L "$DESTDIR/lib/ld-musl-x86_64.so.1"
+'''

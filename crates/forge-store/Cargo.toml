@@ -1,0 +1,18 @@
+[package]
+name = "forge-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+forge-schema.workspace = true
+serde.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+tar.workspace = true
+ruzstd.workspace = true
+ed25519-dalek.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

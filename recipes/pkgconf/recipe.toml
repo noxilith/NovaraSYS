@@ -1,0 +1,24 @@
+# pkgconf, the pkg-config implementation. Static, with `pkg-config` as an alias.
+name        = "pkgconf"
+version     = "2.3.0"
+description = "pkg-config compatible tool for finding libraries' flags"
+license     = "ISC"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://distfiles.ariadne.space/pkgconf/pkgconf-2.3.0.tar.xz"
+sha256 = "3a9080ac51d03615e7c1910a0a2a8df08424892b5f13b0628a204d3fcce0ea8b"
+
+[build]
+configure = "./configure --prefix=/usr --disable-shared --enable-static --disable-dependency-tracking CFLAGS='-O2' LDFLAGS=--static"
+compile   = "make -j$JOBS"
+install   = '''
+make DESTDIR=$DESTDIR install
+rm -rf "$DESTDIR/usr/share/man" "$DESTDIR/usr/share/doc" "$DESTDIR/usr/lib/pkgconfig/pkgconf.pc"
+ln -sf pkgconf "$DESTDIR/usr/bin/pkg-config"
+strip "$DESTDIR/usr/bin/pkgconf"
+test -x "$DESTDIR/usr/bin/pkgconf"
+'''

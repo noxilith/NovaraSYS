@@ -1,0 +1,13 @@
+[package]
+name = "forge-strap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+forge-gen.workspace = true
+forge-schema.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

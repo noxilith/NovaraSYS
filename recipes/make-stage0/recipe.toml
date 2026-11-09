@@ -1,0 +1,47 @@
+# Stage 0 GNU make, static. Same approach as the busybox recipe.
+# `-std=gnu17`: make 4.4.1 has K&R-style declarations (`extern char *getenv ();`)
+# that mean "no arguments" in C23, the default of gcc 15 and newer.
+name        = "make-stage0"
+version     = "4.4.1"
+description = "GNU make"
+license     = "GPL-3.0-or-later"
+libc        = ["musl", "glibc"]
+
+[[source]]
+url    = "https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz"
+# Pinned from the first download (trust on first use).
+sha256 = "dd16fb1d67bfab79a72f5e8390735c49e3e8e70b4945a15ab1f81ddb78658fb3"
+
+[[source]]
+url    = "https://musl.libc.org/releases/musl-1.2.5.tar.gz"
+sha256 = "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4"
+
+[build]
+configure = "./configure --prefix=/usr --without-guile --disable-nls --disable-load --disable-dependency-tracking CFLAGS='-O2 -std=gnu17' LDFLAGS=-static"
+compile   = "make -j$JOBS"
+install   = "make DESTDIR=$DESTDIR install-exec"
+
+[libc_override.musl]
+prepare = '''
+# Stage 0: build musl with the host compiler into /build/musl, together with
+# its `musl-gcc` wrapper, and compile this package against it. (`DESTDIR=` is
+# set explicitly: forge exports DESTDIR to every step, and `make` would otherwise
+# install this helper copy of musl inside the package's own output.)
+mkdir -p /build/musl-src
+tar -xzf /sources/musl-1.2.5.tar.gz -C /build/musl-src
+(cd /build/musl-src/musl-1.2.5 && ./configure --prefix=/build/musl --disable-shared && make -j"$JOBS" && make DESTDIR= install)
+# Newer gcc links libatomic by default from the *system* library directory,
+# which a musl build must not search. Keep gcc's default link sequence, minus that.
+cat >> /build/musl/lib/musl-gcc.specs <<'SPECS'
+*link_gcc_c_sequence:
+%{static|static-pie:--start-group} %G %L %{static|static-pie:--end-group}%{!static:%{!static-pie:%G}}
+
+SPECS
+# The kernel API headers come from the host in stage 0.
+for d in asm asm-generic linux mtd; do
+    for base in /usr/include /usr/include/x86_64-linux-gnu; do
+        if [ -d "$base/$d" ]; then cp -R "$base/$d" /build/musl/include/; break; fi
+    done
+done
+'''
+configure = "./configure --prefix=/usr --without-guile --disable-nls --disable-load --disable-dependency-tracking CC=/build/musl/bin/musl-gcc CFLAGS='-O2 -std=gnu17' LDFLAGS=-static"

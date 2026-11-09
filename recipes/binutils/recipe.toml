@@ -1,0 +1,62 @@
+# Stage 2 binutils: built natively on musl, by the stage-1 toolchain, in a
+# sandbox with NO host tools (BusyBox, make, binutils-stage1, gcc-stage1, musl
+# and linux-headers from the store are all it has). This is the final
+# `binutils` package; the `-stage1` ones are only used to bootstrap it.
+#
+# build = host = target, spelled identically, so configure treats this as a
+# native build: unprefixed tool names (`ld`, `as`, ...) and no cross layout.
+# Linked statically (`--static`, two dashes: see binutils-stage1) so the tools
+# run in any sandbox, with or without a libc around them.
+name        = "binutils"
+version     = "2.43.1"
+description = "GNU binutils for x86_64-linux-musl (native, static)"
+license     = "GPL-3.0-or-later"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://ftp.gnu.org/gnu/binutils/binutils-2.43.1.tar.xz"
+# Pinned from the first download (trust on first use); see binutils-stage1.
+sha256 = "13f74202a3c4c51118b797a39ea4200d3f6cfbe224da6d1d95bb938480132dfd"
+
+[build]
+configure = '''
+mkdir -p /build/binutils-build
+cd /build/binutils-build
+"$SRC/configure" \
+    --prefix=/usr \
+    --build=x86_64-linux-musl --host=x86_64-linux-musl --target=x86_64-linux-musl \
+    --disable-nls --disable-multilib --disable-werror --disable-gprofng \
+    --disable-plugins --disable-shared --enable-static \
+    --enable-deterministic-archives --without-zstd \
+    LDFLAGS=--static MAKEINFO=true
+'''
+compile = "cd /build/binutils-build && make -j$JOBS MAKEINFO=true"
+install = '''
+cd /build/binutils-build
+make DESTDIR=$DESTDIR MAKEINFO=true install-strip
+
+# The install makes hard links between usr/bin and usr/<target>/bin; use
+# symlinks so the package does not carry every tool twice.
+if [ -d "$DESTDIR/usr/x86_64-linux-musl/bin" ]; then
+    for f in "$DESTDIR"/usr/x86_64-linux-musl/bin/*; do
+        name=$(basename "$f")
+        rm -f "$f"
+        ln -s "../../bin/$name" "$f"
+    done
+fi
+rm -rf "$DESTDIR/usr/share/info" "$DESTDIR/usr/share/man"
+
+# Self-check: every tool must be fully static (no program interpreter).
+for tool in ar as ld nm objcopy objdump ranlib readelf strip; do
+    f="$DESTDIR/usr/bin/$tool"
+    test -e "$f"
+    interp=$(readelf -lW "$f" | grep -c INTERP || true)
+    if [ "$interp" != 0 ]; then
+        echo "$f is dynamically linked, but this package must be static" >&2
+        exit 1
+    fi
+done
+'''

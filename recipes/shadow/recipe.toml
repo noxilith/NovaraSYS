@@ -1,0 +1,56 @@
+# Account management for the installer (useradd, groupadd, chpasswd, passwd, ...), without PAM.
+# login, su, newgrp and sg are not installed: BusyBox's login stays the login program.
+# /etc/login.defs is part of the package: chpasswd and useradd read it, and its default
+# password hash would otherwise be DES. It must not set SHA_CRYPT_MIN_ROUNDS alone: shadow then
+# asks for rounds=999999999, which musl refuses, and every password change fails.
+name        = "shadow"
+version     = "4.16.0_r1"
+description = "User and group account tools (useradd, groupadd, chpasswd, passwd)"
+license     = "BSD-3-Clause"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://github.com/shadow-maint/shadow/releases/download/4.16.0/shadow-4.16.0.tar.xz"
+sha256 = "b78e3921a95d53282a38e90628880624736bf6235e36eea50c50835f59a3530b"
+
+[build]
+configure = '''
+./configure --prefix=/usr --sysconfdir=/etc --disable-shared --enable-static --without-libpam \
+    --without-selinux --without-acl --without-attr --without-audit --without-libbsd --without-tcb \
+    --without-sssd --without-su --disable-nls --disable-man --disable-account-tools-setuid \
+    --disable-dependency-tracking CFLAGS='-O2' LDFLAGS=--static
+'''
+compile   = "make -j$JOBS"
+install   = '''
+make DESTDIR=$DESTDIR install
+rm -rf "$DESTDIR/usr/share" "$DESTDIR/etc/pam.d"
+rm -f "$DESTDIR"/usr/bin/{login,su,newgrp,sg} "$DESTDIR"/usr/sbin/nologin "$DESTDIR"/usr/bin/nologin
+cat > "$DESTDIR/etc/login.defs" <<'DEFS'
+# Account defaults used by useradd, groupadd and chpasswd.
+ENCRYPT_METHOD SHA512
+UID_MIN 1000
+UID_MAX 60000
+SYS_UID_MIN 100
+SYS_UID_MAX 999
+GID_MIN 1000
+GID_MAX 60000
+SYS_GID_MIN 100
+SYS_GID_MAX 999
+CREATE_HOME yes
+UMASK 077
+HOME_MODE 0700
+USERGROUPS_ENAB yes
+PASS_MAX_DAYS 99999
+PASS_MIN_DAYS 0
+PASS_WARN_AGE 7
+DEFS
+for b in useradd groupadd chpasswd passwd usermod; do
+    f=$(ls "$DESTDIR"/usr/sbin/$b "$DESTDIR"/usr/bin/$b 2>/dev/null | head -1)
+    test -n "$f" || { echo "shadow did not build $b" >&2; exit 1; }
+    strip "$f"
+    if readelf -lW "$f" | grep -q INTERP; then echo "$b is dynamic" >&2; exit 1; fi
+done
+'''
