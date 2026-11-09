@@ -113,7 +113,17 @@ pub fn write_live_root(root: &Path, hostname: &str, password_hash: &str) -> Resu
     put("etc/hostname", 0o644, format!("{hostname}\n"))?;
     put("etc/passwd", 0o644, "root:x:0:0:root:/root:/bin/sh\n".into())?;
     put("etc/shadow", 0o600, format!("root:{password_hash}:20000:0:99999:7:::\n"))?;
-    put("etc/group", 0o644, "root:x:0:\n".into())?;
+    put("etc/group", 0o644, STANDARD_GROUPS.iter().map(|(n, g)| format!("{n}:x:{g}:\n")).collect())?;
+    // Members of `wheel` may use sudo. Nothing in the base system lets any other group do anything yet.
+    put(
+        "etc/sudoers",
+        0o440,
+        "# Written by the image builder. Edit with visudo.\n\
+         Defaults secure_path=\"/forge/profiles/system/current/usr/sbin:/forge/profiles/system/current/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"\n\
+         root ALL=(ALL:ALL) ALL\n\
+         %wheel ALL=(ALL:ALL) ALL\n"
+            .into(),
+    )?;
     put("etc/shells", 0o644, "/bin/sh\n".into())?;
     put(
         "etc/os-release",
@@ -580,3 +590,85 @@ case "$1" in
 esac
 exit 0
 "#;
+
+/// Groups every system gets, with fixed ids (so a file's group means the same on every install). `wheel`
+/// is the administrators; the rest exist so that users can be put in them: devices only honour them once
+/// something (udev, mdev rules) assigns them, which the base system does not do yet.
+pub const STANDARD_GROUPS: &[(&str, u32)] = &[
+    ("root", 0),
+    ("daemon", 1),
+    ("tty", 5),
+    ("disk", 6),
+    ("wheel", 10),
+    ("cdrom", 11),
+    ("audio", 18),
+    ("video", 27),
+    ("input", 97),
+    ("users", 100),
+    ("nogroup", 65534),
+];
+
+/// Programs that must run as root for ordinary users, and nothing else. The package store never keeps
+/// setuid bits, so these are made setuid here, in the base system image, on the copies the image holds;
+/// a package installed later can never add to this list. (`su` is deliberately absent: `sudo -i` does that.)
+pub const SETUID_FILES: &[&str] = &["usr/bin/sudo", "usr/bin/passwd"];
+
+/// Make the allowlisted files that exist setuid root (mode 4755). A symlink is refused: the bit would land on
+/// whatever it points to.
+pub fn set_setuid(root: &Path) -> Result<Vec<&'static str>, IsoError> {
+    let mut done = vec![];
+    for f in SETUID_FILES {
+        let p = root.join(f);
+        match fs::symlink_metadata(&p) {
+            Ok(m) if m.file_type().is_file() => {
+                fs::set_permissions(&p, fs::Permissions::from_mode(0o4755)).map_err(io_ctx(format!("making /{f} setuid")))?;
+                done.push(*f);
+            }
+            Ok(_) => return Err(IsoError::Invalid { what: "setuid file", value: format!("/{f} is not a regular file") }),
+            Err(_) => {}
+        }
+    }
+    Ok(done)
+}
+
+#[cfg(test)]
+mod setuid_tests {
+    use super::*;
+
+    #[test]
+    fn only_allowlisted_regular_files_become_setuid() {
+        let t = tempfile::tempdir().unwrap();
+        fs::create_dir_all(t.path().join("usr/bin")).unwrap();
+        fs::write(t.path().join("usr/bin/sudo"), "ELF").unwrap();
+        fs::write(t.path().join("usr/bin/other"), "ELF").unwrap();
+        fs::set_permissions(t.path().join("usr/bin/sudo"), fs::Permissions::from_mode(0o555)).unwrap();
+        let done = set_setuid(t.path()).unwrap();
+        assert_eq!(done, ["usr/bin/sudo"], "passwd is absent, so it is skipped");
+        let mode = |f: &str| fs::metadata(t.path().join(f)).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(mode("usr/bin/sudo"), 0o4755);
+        assert_eq!(mode("usr/bin/other"), 0o644, "nothing outside the list is touched");
+    }
+
+    #[test]
+    fn a_symlink_in_the_list_is_refused() {
+        let t = tempfile::tempdir().unwrap();
+        fs::create_dir_all(t.path().join("usr/bin")).unwrap();
+        fs::write(t.path().join("target"), "x").unwrap();
+        symlink("../../target", t.path().join("usr/bin/sudo")).unwrap();
+        assert!(set_setuid(t.path()).is_err());
+        assert_eq!(fs::metadata(t.path().join("target")).unwrap().permissions().mode() & 0o4000, 0, "the target was not touched");
+    }
+
+    #[test]
+    fn the_live_root_has_wheel_and_a_sudoers_that_names_it() {
+        let t = tempfile::tempdir().unwrap();
+        write_live_root(t.path(), "h", "x").unwrap();
+        let group = fs::read_to_string(t.path().join("etc/group")).unwrap();
+        for g in ["root:x:0:", "wheel:x:10:", "audio:x:18:", "video:x:27:", "users:x:100:"] {
+            assert!(group.contains(g), "{g} missing: {group}");
+        }
+        let sudoers = fs::read_to_string(t.path().join("etc/sudoers")).unwrap();
+        assert!(sudoers.contains("%wheel ALL=(ALL:ALL) ALL"), "{sudoers}");
+        assert_eq!(fs::metadata(t.path().join("etc/sudoers")).unwrap().permissions().mode() & 0o777, 0o440, "sudo refuses a writable sudoers");
+    }
+}

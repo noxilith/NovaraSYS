@@ -1288,7 +1288,7 @@ struct IsoArgs {
     #[arg(long, required = true)]
     repo: Vec<PathBuf>,
     /// Packages in the live system; their dependencies come along
-    #[arg(long = "package", default_values_t = ["linux", "busybox", "musl", "openrc", "forge", "rsync", "util-linux", "ncurses", "btrfs-progs", "shadow", "limine", "efibootmgr", "wpa_supplicant", "wireless-regdb", "linux-firmware-wifi"].map(String::from))]
+    #[arg(long = "package", default_values_t = ["linux", "busybox", "musl", "openrc", "sudo", "forge", "rsync", "util-linux", "ncurses", "btrfs-progs", "shadow", "limine", "efibootmgr", "wpa_supplicant", "wireless-regdb", "linux-firmware-wifi"].map(String::from))]
     packages: Vec<String>,
     #[arg(long, default_value = "musl")]
     libc: String,

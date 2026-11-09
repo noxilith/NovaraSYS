@@ -1,0 +1,35 @@
+# sudo, static, without PAM (it checks the password against /etc/shadow itself), with the sudoers plugin
+# linked into the binary (a static program cannot dlopen plugins).
+#
+# The store never keeps setuid bits (see forge-store), so this package ships `sudo` WITHOUT its setuid bit
+# and without /etc/sudoers. The base system image (`forge iso`) is what makes /usr/bin/sudo setuid root,
+# from a short allowlist, and writes /etc/sudoers: sudo is part of the base, like `login`.
+name        = "sudo"
+version     = "1.9.17p2"
+description = "Run commands as another user (static, no PAM)"
+license     = "ISC"
+libc        = ["musl"]
+
+[depends]
+build = ["busybox", "make", "binutils", "gcc", "musl", "linux-headers"]
+
+[[source]]
+url    = "https://www.sudo.ws/dist/sudo-1.9.17p2.tar.gz"
+# Pinned from the first download (trust on first use); sudo.ws publishes a GPG signature, which is not checked here.
+sha256 = "4a38a1ab3adb1199257edc2a7c4a2bd714665eb605b04368843b06dada2cfcfb"
+
+[build]
+configure = '''
+./configure --prefix=/usr --sysconfdir=/etc --disable-shared --enable-static-sudoers \
+    --without-pam --without-selinux --without-linux-audit --without-ldap --without-sendmail \
+    --disable-nls --disable-root-mailer --with-rundir=/run/sudo --with-vardir=/var/db/sudo \
+    CFLAGS='-O2' LDFLAGS=--static
+'''
+compile = "make -j$JOBS"
+install = '''
+make DESTDIR=$DESTDIR install INSTALL_OWNER=
+rm -rf "$DESTDIR/etc" "$DESTDIR/usr/share" "$DESTDIR/var" "$DESTDIR/run"
+strip "$DESTDIR/usr/bin/sudo" "$DESTDIR/usr/sbin/visudo" 2>/dev/null || true
+test -x "$DESTDIR/usr/bin/sudo"
+if readelf -lW "$DESTDIR/usr/bin/sudo" | grep -q INTERP; then echo "sudo is dynamic" >&2; exit 1; fi
+'''

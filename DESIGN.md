@@ -684,3 +684,27 @@ repository, `https://github.com/noxilith/NovaraSYS`.
 - **Limits.** One release holds one version of each package; there is no per-package history to roll a repository
   back to (the client's generations are the way back). `pkg add` cannot yet pull in build tools for `forge kernel`
   automatically.
+
+## Administrators, groups and `sudo` (implemented, published; never run as a non-root user)
+
+A user created by `forge strap` had only the `forge` group, and the system had no `sudo` at all (I had been writing
+`sudo forge ...` in instructions that could not work on an installed system). Fixed:
+
+- **Groups.** The base system now has the usual groups with fixed ids (root, daemon, tty, disk, wheel 10, cdrom,
+  audio 18, video 27, input 97, users 100, nogroup). The installer's user joins `wheel` (administrator),
+  `forge` (package store), `audio`, `video`, `input` and `users`; strap creates each group first with `groupadd -f`,
+  and the starter `system.toml` lists them. `audio`/`video`/`input` give nothing yet: nothing assigns those groups to
+  device nodes (no udev or mdev rules in the base), so for now they only exist.
+- **`sudo` (1.9.17p2), static, no PAM** (it checks `/etc/shadow` itself), the sudoers plugin linked in. `/etc/sudoers` is
+  written by the image builder: `root` and `%wheel` may do anything, mode 0440; `secure_path` includes the forge profile.
+- **setuid lives in the base, never in the store.** The store strips setuid/setgid when it unpacks (a package must not be
+  able to ship a root-owned privileged binary), so the `sudo` package ships without the bit. The image builder makes
+  exactly `usr/bin/sudo` and `usr/bin/passwd` setuid (`SETUID_FILES`) on the copies the image holds, refuses a symlink
+  in that list, and touches nothing else. A package installed later cannot add to the list. Consequence: sudo is part of
+  the base image; updating the package does not update the base copy. `su` is deliberately not setuid (`sudo -i` instead).
+- **Tested**: group, sudoers and setuid logic by unit tests; in the finished image `sudo` and `passwd` are `-rwsr-xr-x root`
+  and `sudoers` is `-r--r----- root` (read from the squashfs); `sudo -V` runs there. **Not tested**: sudo as an ordinary
+  user (needs a real boot; a rootless chroot cannot switch user ids, so `visudo -c` could not run either), and the
+  strap group changes on a real disk.
+- **On a system installed before this**: no sudo exists. Log in as root, then `usermod -aG wheel,audio,video,input,users NAME`;
+  for sudo reinstall from the new ISO.

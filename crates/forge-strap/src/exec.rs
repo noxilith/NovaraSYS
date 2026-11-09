@@ -15,6 +15,9 @@ use crate::{Firmware, Plan, Step, split_partition};
 /// (artifacts only the live environment uses).
 pub const LIVE_ONLY_PATHS: &[&str] = &["/fastboot", "/.live", "/medium"];
 
+/// Groups of the user the installer creates: administrator (`wheel`, named by sudoers), package store, devices.
+pub const USER_GROUPS: &[&str] = &["wheel", "forge", "audio", "video", "input", "users"];
+
 /// Directories that exist only as mount points / runtime state. They are not
 /// copied; empty ones are created on the target instead.
 const RUNTIME_DIRS: &[&str] = &["dev", "proc", "sys", "run", "tmp", "mnt"];
@@ -482,7 +485,8 @@ impl Exec<'_> {
                 forge_schema::DEFAULT_REPO_URL
             );
             if let Some(u) = &self.req.accounts.user {
-                decl.push_str(&format!("\n[[users]]\nname = \"{}\"\ngroups = [\"forge\"]\n", u.name));
+                let groups: Vec<String> = USER_GROUPS.iter().map(|g| format!("\"{g}\"")).collect();
+                decl.push_str(&format!("\n[[users]]\nname = \"{}\"\ngroups = [{}]\n", u.name, groups.join(", ")));
             }
             SystemDecl::parse(&decl).map_err(|e| StrapError::Invalid {
                 what: "generated system.toml",
@@ -564,10 +568,14 @@ impl Exec<'_> {
             acc.root_password.clone(),
         );
         if let Some((name, pw)) = user {
-            // Installer-created users may use the package store, so they join `forge`.
-            self.cmd(&Cmd::new("groupadd", &["--root"]).arg(&mp).arg("-f").arg("forge"))?;
+            // The installer's user is an administrator (`wheel`, which sudoers names), may use the package store
+            // (`forge`), and joins the usual hardware groups. Creating them first with -f is harmless if they exist.
+            for g in USER_GROUPS {
+                self.cmd(&Cmd::new("groupadd", &["--root"]).arg(&mp).arg("-f").arg(*g))?;
+            }
+            let groups = USER_GROUPS.join(",");
             self.cmd(
-                &Cmd::new("useradd", &["--root"]).arg(&mp).args(["-m", "-G", "forge", "-s", "/bin/sh"]).arg(&name),
+                &Cmd::new("useradd", &["--root"]).arg(&mp).args(["-m", "-G", groups.as_str(), "-s", "/bin/sh"]).arg(&name),
             )?;
             self.cmd(&Cmd::new("chpasswd", &["--root"]).arg(&mp).stdin(format!("{name}:{pw}\n")))?;
         }

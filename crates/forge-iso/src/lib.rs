@@ -14,7 +14,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-pub use live::{SQUASHFS_PATH, init_script, limine_conf};
+pub use live::{SETUID_FILES, SQUASHFS_PATH, STANDARD_GROUPS, init_script, limine_conf, set_setuid};
 pub use rootfs::{fetch, merge};
 
 #[derive(Debug, thiserror::Error)]
@@ -141,6 +141,7 @@ pub fn build(spec: &IsoSpec, runner: &mut dyn Runner) -> Result<(), IsoError> {
     // The live system.
     let hash = runner.run("openssl", &args(&["passwd", "-6", "-salt", "novaralive", "-stdin"]), Some(&format!("{}\n", spec.root_password)))?;
     live::write_live_root(&spec.rootfs, &spec.hostname, hash.trim())?;
+    live::set_setuid(&spec.rootfs)?;
     let keys_dir = spec.rootfs.join("etc/forge/keys");
     fs::create_dir_all(&keys_dir).map_err(io_ctx("creating /etc/forge/keys"))?;
     for key in &spec.trusted_keys {

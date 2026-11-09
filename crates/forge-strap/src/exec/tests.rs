@@ -217,7 +217,7 @@ fn writes_a_starter_declaration_that_parses_and_never_overwrites_one() {
     assert_eq!(decl.hostname, "novara");
     assert_eq!(decl.libc, Libc::Musl, "detected from ld-musl");
     assert_eq!(decl.users[0].name, "alice");
-    assert_eq!(decl.users[0].groups, ["forge"]);
+    assert_eq!(decl.users[0].groups, ["wheel", "forge", "audio", "video", "input", "users"]);
 
     fs::write(f.mp().join("etc/forge/system.toml"), "hostname = \"mine\"\nlibc = \"glibc\"\n").unwrap();
     run(&f.request(Firmware::Uefi)).0.unwrap();
@@ -319,8 +319,15 @@ fn accounts_are_created_with_passwords_on_stdin_only() {
     res.unwrap();
 
     let mp = f.mp().display().to_string();
-    assert_eq!(r.find("groupadd")[0].args, ["--root", &mp, "-f", "forge"]);
-    assert_eq!(r.find("useradd")[0].args, ["--root", &mp, "-m", "-G", "forge", "-s", "/bin/sh", "alice"]);
+    // Every group is created first (harmless if present), so useradd -G never names a missing one.
+    let made: Vec<&str> = r.find("groupadd").iter().map(|c| c.args.last().unwrap().as_str()).collect();
+    assert_eq!(made, ["wheel", "forge", "audio", "video", "input", "users"]);
+    assert!(r.find("groupadd").iter().all(|c| c.args[..3] == ["--root", mp.as_str(), "-f"]));
+    assert_eq!(
+        r.find("useradd")[0].args,
+        ["--root", &mp, "-m", "-G", "wheel,forge,audio,video,input,users", "-s", "/bin/sh", "alice"],
+        "the installer's user is an administrator"
+    );
     let ch = r.find("chpasswd");
     assert_eq!(ch.len(), 2);
     assert_eq!(ch[0].stdin.as_deref(), Some("alice:s3cret\n"));
